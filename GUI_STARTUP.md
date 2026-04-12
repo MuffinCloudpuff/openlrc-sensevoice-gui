@@ -1,5 +1,13 @@
 # GUI Startup Guide
 
+Before using this file, read [`PROJECT_MAINLINE.md`](PROJECT_MAINLINE.md) first.
+
+This startup guide assumes the current mainline:
+
+- ASR backend: `SenseVoice`
+- default environment: `.\.venv-gpu`
+- primary product surface: `Streamlit GUI`
+
 This document explains how to start the Streamlit GUI locally on Windows.
 
 ## 1. Go to the project directory

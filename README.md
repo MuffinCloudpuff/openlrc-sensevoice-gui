@@ -3,6 +3,17 @@
 中文优先的 `openlrc` 分支，重点是通过 Streamlit GUI 运行 SenseVoice 转写和 LLM 字幕翻译。  
 A Chinese-first fork of `openlrc`, focused on running SenseVoice transcription and LLM subtitle translation through a Streamlit GUI.
 
+## First Read
+
+在继续之前，先读 [`PROJECT_MAINLINE.md`](PROJECT_MAINLINE.md)。  
+Read [`PROJECT_MAINLINE.md`](PROJECT_MAINLINE.md) first.
+
+它是当前仓库的统一入口，明确说明：
+
+- 当前主线是 `SenseVoice + Streamlit + 目录级批处理`
+- 当前默认环境是 `.\.venv-gpu`
+- 哪些旧的 `Whisper` / 上游式表述只是兼容遗留，不应该当成当前项目方向
+
 ## 重要说明 | Important Notice
 
 这是一个独立 fork，不是 `openlrc` 官方仓库。  
@@ -60,6 +71,8 @@ This repository is mainly intended for a local Windows workflow, especially if y
 
 ## 仓库结构 | Repository Layout
 
+- [`PROJECT_MAINLINE.md`](PROJECT_MAINLINE.md): 当前仓库统一入口 / canonical project entry for humans and AI
+- [`DIRECTORY_BATCH_WORKFLOW_PLAN.md`](DIRECTORY_BATCH_WORKFLOW_PLAN.md): 当前目录级批处理实施计划 / active directory-batch implementation plan
 - [`openlrc/gui_streamlit/home.py`](openlrc/gui_streamlit/home.py): 主 Streamlit 页面 / main Streamlit interface
 - [`GUI_STARTUP.md`](GUI_STARTUP.md): Windows 本地启动说明 / local startup guide for Windows
 - [`run_local.py`](run_local.py): 简单本地 CLI 入口 / simple local CLI entry point
@@ -95,13 +108,13 @@ Typical local setup:
 ```powershell
 git clone https://github.com/MuffinCloudpuff/openlrc-sensevoice-gui.git
 cd openlrc-sensevoice-gui
-python -m venv .venv
-.\.venv\Scripts\pip install -U pip
-.\.venv\Scripts\pip install -e .
+python -m venv .venv-gpu
+.\.venv-gpu\Scripts\pip install -U pip
+.\.venv-gpu\Scripts\pip install -e .
 ```
 
-如果你使用单独的 GPU 虚拟环境，请按你的环境调整命令。  
-If you use a separate GPU environment, adapt the commands to your own environment.
+当前文档默认都以 `.\.venv-gpu` 为准。  
+Current docs assume `.\.venv-gpu` as the default environment.
 
 ### 3. 启动 GUI | Start the GUI
 
@@ -143,23 +156,25 @@ For relay mode, set:
 
 ### 5. 运行任务 | Run a Job
 
-1. 上传音频或视频文件  
-   Upload audio or video files
-2. 选择源语言和目标语言  
-   Choose source and target language
-3. 决定是否使用仅转写模式  
-   Decide whether to use transcribe-only mode
-4. 设置翻译费用上限  
-   Set the translation fee limit
-5. 点击开始按钮  
-   Click the start button
+1. 选择一个根目录，而不是逐个上传文件  
+   Choose a root directory instead of uploading files one by one
+2. 让 GUI 递归扫描其中的音频文件  
+   Let the GUI recursively scan audio files under that directory
+3. 选择源语言、目标语言和是否仅转写  
+   Choose source language, target language, and whether to use transcribe-only mode
+4. 运行 ASR，并把缓存写入 `.openlrc_cache`  
+   Run ASR and persist cache under `.openlrc_cache`
+5. 在真正调用翻译前查看费用估算并确认  
+   Review translation fee estimates and confirm before any LLM call
+6. 只翻译你勾选的文件  
+   Translate only the files you selected
 
 GUI 会展示：  
 The GUI shows:
 
-- 预处理进度 / preprocessing progress
-- 转写进度 / transcription progress
-- 翻译前费用预估 / cost estimation before translation
+- 根目录扫描结果 / root-directory scan results
+- ASR 缓存复用状态 / ASR cache reuse status
+- 翻译前费用预估与确认 / cost estimation and confirmation before translation
 - 当前翻译或导出状态 / current translation or export status
 - 实时日志 / live log output
 
@@ -196,8 +211,9 @@ Transcribe only:
 If you want to continue development on this fork, start with:
 
 ```powershell
-python -m py_compile openlrc\gui_streamlit\home.py
-pytest tests\test_chatbot.py tests\test_translate.py -q
+.\.venv-gpu\Scripts\python.exe -m py_compile openlrc\directory_workflow.py openlrc\gui_streamlit\home.py
+.\.venv-gpu\Scripts\python.exe -m ruff check openlrc\directory_workflow.py openlrc\gui_streamlit\home.py tests\test_directory_workflow.py
+.\.venv-gpu\Scripts\python.exe -m pytest tests\test_directory_workflow.py tests\test_config.py tests\test_lazy_imports.py -q
 ```
 
 另外还有一些本地回归测试：  
