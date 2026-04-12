@@ -1,62 +1,95 @@
 # OpenLRC SenseVoice GUI Fork
 
-Chinese-first local fork of [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc), focused on running SenseVoice transcription and LLM subtitle translation through a Streamlit GUI.
+中文优先的 `openlrc` 分支，重点是通过 Streamlit GUI 运行 SenseVoice 转写和 LLM 字幕翻译。  
+A Chinese-first fork of `openlrc`, focused on running SenseVoice transcription and LLM subtitle translation through a Streamlit GUI.
 
-This repository is intended for a practical Windows workflow:
+## 重要说明 | Important Notice
 
-- SenseVoice-based transcription with GPU support
-- Streamlit GUI instead of CLI-first usage
-- custom relay / OpenAI-compatible translation endpoints
-- clearer stage progress during long jobs
-- translation fee estimation before the LLM step starts
+这是一个独立 fork，不是 `openlrc` 官方仓库。  
+This is an independent fork and is not the official `openlrc` repository.
 
-> [!IMPORTANT]
-> This is an independent fork and is **not** the official `openlrc` repository.
-> If you want the upstream project, go to [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc).
+上游项目地址：[`zh-plus/openlrc`](https://github.com/zh-plus/openlrc)  
+Upstream repository: [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc)
 
-## Attribution
+## 署名与许可证 | Attribution and License
 
-This project is based on [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc), created by `zh-plus`.
+本项目基于 [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc) 二次开发，原作者为 `zh-plus`。  
+This project is derived from [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc), originally created by `zh-plus`.
+
+- 原项目名称：`openlrc` / `Open-Lyrics`
+- 原项目许可证：MIT
+- 本 fork 在保留原许可证的前提下，针对本地中文 GUI 工作流做了定制
 
 - Original project name: `openlrc` / `Open-Lyrics`
 - Original license: MIT
-- This fork keeps the upstream license and builds on top of that codebase for a different local-product workflow
+- This fork keeps the upstream license and customizes the project for a Chinese-first local GUI workflow
 
-When redistributing this repository or publishing derived versions, keep the original MIT license text and attribution.
+发布或再分发本仓库时，请保留原始 MIT 许可证与署名信息。  
+If you redistribute this repository or publish derived versions, keep the original MIT license text and attribution.
 
-## What This Fork Changes
+## 这个 Fork 做了什么 | What This Fork Changes
 
-- Reworked the Streamlit GUI around a Chinese-first local workflow
-- Added better progress visibility for preprocessing, transcription, translation, and export
-- Added support for custom relay endpoints and relay model detection in the GUI
-- Added translation fee estimation and clearer fee-limit warnings before translation starts
-- Fixed a GUI validation bug that could make the page appear stuck after clicking the start button
-- Added local startup helpers for running the GUI with a GPU environment
+- 面向中文本地使用场景重做了 Streamlit GUI  
+  Reworked the Streamlit GUI around a Chinese-first local workflow
+- 增强了预处理、转写、翻译、导出的阶段进度展示  
+  Added clearer phase progress for preprocessing, transcription, translation, and export
+- 支持自定义中转接口与中转模型探测  
+  Added support for custom relay endpoints and relay model detection
+- 在翻译前增加费用预估和费用上限提示  
+  Added translation fee estimation and fee-limit warnings before translation starts
+- 修复了点击开始处理后前端看似卡住的校验逻辑问题  
+  Fixed a GUI validation bug that could make the page appear stuck after clicking the start button
+- 增加了本地 GPU 启动辅助脚本和文档  
+  Added local startup helpers and documentation for GPU-based usage
 
-## Repository Layout
+## 适用场景 | Intended Use
 
-- [`openlrc/gui_streamlit/home.py`](openlrc/gui_streamlit/home.py): main Streamlit interface
-- [`GUI_STARTUP.md`](GUI_STARTUP.md): local GUI startup guide for Windows
-- [`run_local.py`](run_local.py): simple local CLI entry point
-- [`CHANGELOG.md`](CHANGELOG.md): fork release notes and update history
+这个仓库主要面向 Windows 本地工作流，适合以下需求：  
+This repository is mainly intended for a local Windows workflow, especially if you want:
 
-## Quick Start
+- SenseVoice + GPU 转写  
+  SenseVoice-based transcription with GPU support
+- 图形界面而不是纯 CLI  
+  a GUI instead of a CLI-first workflow
+- 自定义 OpenAI-compatible / relay 翻译接口  
+  custom OpenAI-compatible or relay translation endpoints
+- 长任务期间更明确的进度反馈  
+  clearer progress feedback during long-running jobs
+- 在真正调用 LLM 前先做费用预估  
+  translation cost estimation before the LLM step starts
 
-### 1. Prepare the environment
+## 仓库结构 | Repository Layout
 
+- [`openlrc/gui_streamlit/home.py`](openlrc/gui_streamlit/home.py): 主 Streamlit 页面 / main Streamlit interface
+- [`GUI_STARTUP.md`](GUI_STARTUP.md): Windows 本地启动说明 / local startup guide for Windows
+- [`run_local.py`](run_local.py): 简单本地 CLI 入口 / simple local CLI entry point
+- [`CHANGELOG.md`](CHANGELOG.md): 更新日志 / release notes and change history
+
+## 快速开始 | Quick Start
+
+### 1. 环境准备 | Prepare the Environment
+
+你需要：  
 You need:
 
 - Python 3.11
-- FFmpeg available in `PATH`
-- a working CUDA / PyTorch environment if you want GPU inference
-- at least one translation credential:
-  - direct provider key, or
-  - relay endpoint + relay API key
+- FFmpeg，并确保已加入 `PATH`  
+  FFmpeg available in `PATH`
+- 如果想用 GPU 推理，需要可用的 CUDA / PyTorch 环境  
+  a working CUDA / PyTorch environment if you want GPU inference
+- 至少一种翻译凭证：  
+  at least one translation credential:
+  - 直连模型 API key  
+    direct provider key
+  - 或中转接口 + 中转 API key  
+    or relay endpoint + relay API key
 
-### 2. Install dependencies
+### 2. 安装依赖 | Install Dependencies
 
-This fork currently targets local source usage rather than a polished PyPI release flow.
+当前这个 fork 更偏向源码本地运行，而不是 PyPI 发布版工作流。  
+This fork currently targets local source usage rather than a polished PyPI release workflow.
 
+典型本地安装方式：  
 Typical local setup:
 
 ```powershell
@@ -67,31 +100,40 @@ python -m venv .venv
 .\.venv\Scripts\pip install -e .
 ```
 
-If you use a separate GPU environment, adapt the commands to that environment instead.
+如果你使用单独的 GPU 虚拟环境，请按你的环境调整命令。  
+If you use a separate GPU environment, adapt the commands to your own environment.
 
-### 3. Start the GUI
+### 3. 启动 GUI | Start the GUI
 
-Follow [`GUI_STARTUP.md`](GUI_STARTUP.md).
+先阅读 [`GUI_STARTUP.md`](GUI_STARTUP.md)。  
+Read [`GUI_STARTUP.md`](GUI_STARTUP.md) first.
 
+典型启动命令：  
 Typical command:
 
 ```powershell
 .\.venv-gpu\Scripts\streamlit.exe run openlrc\gui_streamlit\home.py --server.port 8502
 ```
 
+然后打开：  
 Then open:
 
 ```text
 http://localhost:8502
 ```
 
-### 4. Configure translation
+### 4. 配置翻译 | Configure Translation
 
+GUI 支持两种常见模式：  
 The GUI supports two common modes:
 
-- direct model credentials such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `OPENROUTER_API_KEY`
-- relay mode through a custom `Base URL` and relay API key
+- 直连 API key：`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GOOGLE_API_KEY`、`OPENROUTER_API_KEY`
+- 中转模式：自定义 `Base URL` + relay API key
 
+- direct provider keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`
+- relay mode: custom `Base URL` plus a relay API key
+
+如果使用中转模式，需要设置：  
 For relay mode, set:
 
 - provider type
@@ -99,64 +141,79 @@ For relay mode, set:
 - relay model name
 - relay API key
 
-### 5. Run a job
+### 5. 运行任务 | Run a Job
 
-1. Upload audio or video files
-2. Choose source language and target language
-3. Decide whether to use transcribe-only mode
-4. Set the translation fee limit
-5. Click the start button
+1. 上传音频或视频文件  
+   Upload audio or video files
+2. 选择源语言和目标语言  
+   Choose source and target language
+3. 决定是否使用仅转写模式  
+   Decide whether to use transcribe-only mode
+4. 设置翻译费用上限  
+   Set the translation fee limit
+5. 点击开始按钮  
+   Click the start button
 
-The GUI will show:
+GUI 会展示：  
+The GUI shows:
 
-- preprocessing progress
-- transcription progress
-- translation fee estimation before translation starts
-- current translation / export status
-- live log output
+- 预处理进度 / preprocessing progress
+- 转写进度 / transcription progress
+- 翻译前费用预估 / cost estimation before translation
+- 当前翻译或导出状态 / current translation or export status
+- 实时日志 / live log output
 
-## CLI Entry Point
+## CLI 入口 | CLI Entry Point
 
-You can also run a local CLI flow with [`run_local.py`](run_local.py):
+你也可以使用 [`run_local.py`](run_local.py) 进行本地命令行运行：  
+You can also use [`run_local.py`](run_local.py) as a simple local CLI entry point:
 
 ```powershell
 .\.venv-gpu\Scripts\python.exe .\run_local.py "D:\path\to\audio.mp3" --target-lang zh-cn
 ```
 
+仅转写：  
 Transcribe only:
 
 ```powershell
 .\.venv-gpu\Scripts\python.exe .\run_local.py "D:\path\to\audio.mp3" --skip-trans
 ```
 
-## Current Notes
+## 当前特性说明 | Current Notes
 
-- This fork is optimized for local Windows usage.
-- The GUI now blocks translation early when the configured fee limit is clearly too low.
-- The fee-limit slider supports larger values than upstream-style defaults.
-- The repository ignores local runtime artifacts such as virtual environments, logs, output folders, and GUI config files.
+- 这个 fork 主要面向 Windows 本地使用  
+  This fork is optimized for local Windows usage
+- GUI 会在翻译前对明显过低的费用上限直接拦截  
+  The GUI now blocks translation early when the configured fee limit is clearly too low
+- 费用上限滑块支持比上游默认值更高的范围  
+  The fee-limit slider supports larger values than upstream-style defaults
+- 仓库已忽略虚拟环境、日志、输出目录、GUI 配置等本地运行产物  
+  The repository ignores local runtime artifacts such as virtual environments, logs, output folders, and GUI config files
 
-## Development Notes
+## 开发说明 | Development Notes
 
-If you want to continue development on this fork:
+如果你要继续开发这个 fork，可以先跑这些检查：  
+If you want to continue development on this fork, start with:
 
 ```powershell
 python -m py_compile openlrc\gui_streamlit\home.py
 pytest tests\test_chatbot.py tests\test_translate.py -q
 ```
 
+另外还有一些本地回归测试：  
 There is also additional local regression coverage in:
 
 - [`tests/test_opt.py`](tests/test_opt.py)
 - [`tests/test_sensevoice_alignment.py`](tests/test_sensevoice_alignment.py)
 
-## Upstream Project
+## 上游项目 | Upstream Project
 
-The upstream project remains the right reference if you want the original package, documentation, and broader model support:
+如果你想看原始包、原始文档和更广泛的模型支持，请参考上游仓库：  
+If you want the original package, upstream documentation, and broader model support, see the upstream repository:
 
-- Upstream repository: [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc)
-- Upstream license: MIT
+- [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc)
 
 ## License
 
+本仓库以 MIT 许可证发布，详见 [LICENSE](LICENSE)。  
 This repository is distributed under the MIT license. See [LICENSE](LICENSE).
