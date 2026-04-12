@@ -1,8 +1,8 @@
 # OpenLRC SenseVoice GUI Fork
 
-Chinese-first local fork of `openlrc`, focused on running SenseVoice transcription and LLM subtitle translation through a Streamlit GUI.
+Chinese-first local fork of [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc), focused on running SenseVoice transcription and LLM subtitle translation through a Streamlit GUI.
 
-This repository is intended as a practical desktop-style workflow for local use on Windows, especially when you want:
+This repository is intended for a practical Windows workflow:
 
 - SenseVoice-based transcription with GPU support
 - Streamlit GUI instead of CLI-first usage
@@ -30,468 +30,133 @@ When redistributing this repository or publishing derived versions, keep the ori
 - Added better progress visibility for preprocessing, transcription, translation, and export
 - Added support for custom relay endpoints and relay model detection in the GUI
 - Added translation fee estimation and clearer fee-limit warnings before translation starts
-- Fixed a GUI credential-validation bug that could make the page appear stuck after clicking "Start"
+- Fixed a GUI validation bug that could make the page appear stuck after clicking the start button
 - Added local startup helpers for running the GUI with a GPU environment
 
-## Local GUI Quick Start
+## Repository Layout
 
-1. Read [GUI_STARTUP.md](GUI_STARTUP.md) for the Windows Streamlit startup flow.
-2. Start the app with your GPU environment, or adapt it to your own Python environment.
-3. Open the Streamlit page in the browser and configure:
-   - SenseVoice model
-   - device / compute type
-   - translation model or relay endpoint
-   - fee limit
-4. Upload audio or video, then start processing.
+- [`openlrc/gui_streamlit/home.py`](openlrc/gui_streamlit/home.py): main Streamlit interface
+- [`GUI_STARTUP.md`](GUI_STARTUP.md): local GUI startup guide for Windows
+- [`run_local.py`](run_local.py): simple local CLI entry point
+- [`CHANGELOG.md`](CHANGELOG.md): fork release notes and update history
 
-You can also use [run_local.py](run_local.py) as a simple local CLI entry point.
+## Quick Start
 
-## Upstream README
+### 1. Prepare the environment
 
-The rest of this README keeps the upstream project documentation as a technical reference, with local adjustments where needed.
+You need:
 
-[![PyPI](https://img.shields.io/pypi/v/openlrc)](https://pypi.org/project/openlrc/)
-[![PyPI - License](https://img.shields.io/pypi/l/openlrc)](https://pypi.org/project/openlrc/)
-[![Downloads](https://static.pepy.tech/badge/openlrc)](https://pepy.tech/project/openlrc)
-![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/zh-plus/Open-Lyrics/ci.yml)
+- Python 3.11
+- FFmpeg available in `PATH`
+- a working CUDA / PyTorch environment if you want GPU inference
+- at least one translation credential:
+  - direct provider key, or
+  - relay endpoint + relay API key
 
-Open-Lyrics is a Python library that transcribes audio with
-[faster-whisper](https://github.com/guillaumekln/faster-whisper), then translates/polishes the text
-into `.lrc` subtitles with LLMs such as
-[OpenAI](https://github.com/openai/openai-python) and [Anthropic](https://github.com/anthropics/anthropic-sdk-python).
+### 2. Install dependencies
 
-#### Key Features
+This fork currently targets local source usage rather than a polished PyPI release flow.
 
-- Audio preprocessing to reduce hallucinations (loudness normalization and optional noise suppression).
-- Context-aware translation to improve translation quality.
-  Check [prompt](https://github.com/zh-plus/openlrc/blob/master/openlrc/prompter.py) for details.
-- Check [here](#how-it-works) for an overview of the architecture.
+Typical local setup:
 
-## New 🚨
-
-- 2024.5.7:
-    - Added custom endpoint (`base_url`) support for OpenAI and Anthropic:
-        ```python
-        lrcer = LRCer(
-            translation=TranslationConfig(
-                base_url_config={'openai': 'https://api.chatanywhere.tech',
-                                 'anthropic': 'https://example/api'}
-            )
-        )
-        ```
-    - Added bilingual subtitle generation:
-        ```python
-        lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
-        ``` 
-- 2024.5.11: Added glossary support in prompts to improve domain-specific translation.
-  Check [here](#glossary) for details.
-- 2024.5.17: You can route models to arbitrary chatbot SDKs (OpenAI or Anthropic) by setting `chatbot_model` to
-  `provider: model_name` together with `base_url_config`:
-    ```python
-    lrcer = LRCer(
-        translation=TranslationConfig(
-            chatbot_model='openai: claude-3-haiku-20240307',
-            base_url_config={'openai': 'https://api.g4f.icu/v1/'}
-        )
-    )
-    ```
-- 2024.6.25: Added Gemini as a translation model (for example, `gemini-1.5-flash`):
-    ```python
-    lrcer = LRCer(translation=TranslationConfig(chatbot_model='gemini-1.5-flash'))
-    ```
-- 2024.9.10: Now openlrc depends on
-  a [specific commit](https://github.com/SYSTRAN/faster-whisper/commit/d57c5b40b06e59ec44240d93485a95799548af50) of
-  faster-whisper, which is not published on PyPI. Install it from source:
-    ```shell
-    pip install "faster-whisper @ https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz"
-    ```
-- 2024.12.19: Added `ModelConfig` for model routing. It is more flexible than plain model-name strings.
-  `ModelConfig` can be `ModelConfig(provider='<provider>', name='<model-name>', base_url='<url>', proxy='<proxy>')`, e.g.:
-    ```python
-  
-    from openlrc import LRCer, TranslationConfig, ModelConfig, ModelProvider
-  
-    chatbot_model1 = ModelConfig(
-        provider=ModelProvider.OPENAI, 
-        name='deepseek-chat', 
-        base_url='https://api.deepseek.com/beta', 
-        api_key='sk-APIKEY'
-    )
-    chatbot_model2 = ModelConfig(
-        provider=ModelProvider.OPENAI, 
-        name='gpt-4o-mini', 
-        api_key='sk-APIKEY'
-    )
-    lrcer = LRCer(translation=TranslationConfig(chatbot_model=chatbot_model1, retry_model=chatbot_model2))
-    ```
-
-## Installation ⚙️
-
-1. Install [CUDA](https://developer.nvidia.com/cuda-toolkit) and [cuDNN](https://developer.nvidia.com/cudnn) according
-   to https://opennmt.net/CTranslate2/installation.html to enable `faster-whisper`.
-
-   `faster-whisper` also needs [cuBLAS](https://developer.nvidia.com/cublas) installed.
-   <details>
-   <summary>For Windows Users (click to expand)</summary> 
-
-   (Windows only) You can download the libraries from Purfview's repository:
-
-   Purfview's [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win) provides the required NVIDIA
-   libraries for Windows in a [single archive](https://github.com/Purfview/whisper-standalone-win/releases/tag/libs).
-   Decompress the archive and place the libraries in a directory included in the `PATH`.
-
-   </details>
-
-
-2. Add LLM API keys (recommended for most users: `OPENROUTER_API_KEY`):
-   - Add your [OpenAI API key](https://platform.openai.com/account/api-keys) to environment variable `OPENAI_API_KEY`.
-   - Add your [Anthropic API key](https://console.anthropic.com/settings/keys) to environment variable
-     `ANTHROPIC_API_KEY`.
-   - Add your [Google API Key](https://aistudio.google.com/app/apikey) to environment variable `GOOGLE_API_KEY`.
-   - Add your [OpenRouter API key](https://openrouter.ai/keys) to environment variable `OPENROUTER_API_KEY`.
-
-3. Install [ffmpeg](https://ffmpeg.org/download.html) and add `bin` directory
-   to your `PATH`.
-
-4. Install from PyPI:
-
-    ```shell
-    pip install openlrc
-    ```
-
-   or install directly from GitHub:
-
-    ```shell
-    pip install git+https://github.com/zh-plus/openlrc
-    ```
-
-5. **(Optional)** If you need noise suppression (`noise_suppress=True`), install the full extras
-   which includes torch and DeepFilterNet:
-
-    ```shell
-    pip install 'openlrc[full]'
-    ```
-
-## Lightweight Imports
-
-OpenLRC keeps several package-root APIs lightweight to import.
-
-The following imports are guaranteed not to eagerly load heavyweight runtime dependencies such as
-`torch`, `spacy`, `faster-whisper`, `tiktoken`, or `lingua`:
-
-```python
-import openlrc
-from openlrc import LRCer
-from openlrc import TranscriptionConfig, TranslationConfig
-from openlrc import ModelConfig, ModelProvider, list_chatbot_models
+```powershell
+git clone https://github.com/MuffinCloudpuff/openlrc-sensevoice-gui.git
+cd openlrc-sensevoice-gui
+python -m venv .venv
+.\.venv\Scripts\pip install -U pip
+.\.venv\Scripts\pip install -e .
 ```
 
-This is useful when you only need configuration objects, model metadata, or the `LRCer` type itself
-without immediately starting transcription or language-processing work.
+If you use a separate GPU environment, adapt the commands to that environment instead.
 
-Heavy dependencies are loaded only when the corresponding features are first used. For example:
+### 3. Start the GUI
 
-- `faster-whisper` is loaded when transcription is first needed.
-- `torch` and `df.enhance` are loaded when noise suppression is used.
-- `spacy` is loaded when sentence segmentation or related NLP helpers are used.
-- `tiktoken` is loaded when token counting is used.
-- `lingua` is loaded when language detection helpers are used.
+Follow [`GUI_STARTUP.md`](GUI_STARTUP.md).
 
-> [!NOTE]
-> The base `pip install openlrc` does **not** include torch or DeepFilterNet.
-> These are only installed with `pip install 'openlrc[full]'` and are only needed
-> for noise suppression (`noise_suppress=True`).
+Typical command:
 
-## Usage 🐍
-
-[//]: # (### GUI)
-
-[//]: # ()
-
-[//]: # (> [!NOTE])
-
-[//]: # (> We are migrating the GUI from streamlit to Gradio. The GUI is still under development.)
-
-[//]: # ()
-
-[//]: # (```shell)
-
-[//]: # (openlrc gui)
-
-[//]: # (```)
-
-[//]: # ()
-
-[//]: # (![]&#40;https://github.com/zh-plus/openlrc/blob/master/resources/streamlit_app.jpg?raw=true&#41;)
-
-### Python code
-
-```python
-import os
-from openlrc import LRCer, TranscriptionConfig, TranslationConfig, ModelConfig, ModelProvider
-
-if __name__ == '__main__':
-    lrcer = LRCer()
-
-    # Single file
-    lrcer.run('./data/test.mp3',
-              target_lang='zh-cn')  # Generate translated ./data/test.lrc with default translate prompt.
-
-    # Multiple files
-    lrcer.run(['./data/test1.mp3', './data/test2.mp3'], target_lang='zh-cn')
-    # Note we run the transcription sequentially, but run the translation concurrently for each file.
-
-    # Path can contain video
-    lrcer.run(['./data/test_audio.mp3', './data/test_video.mp4'], target_lang='zh-cn')
-    # Generate translated ./data/test_audio.lrc and ./data/test_video.srt
-
-    # Use glossary to improve translation
-    lrcer = LRCer(translation=TranslationConfig(glossary='./data/aoe4-glossary.yaml'))
-
-    # To skip translation process
-    lrcer.run('./data/test.mp3', target_lang='en', skip_trans=True)
-
-    # Change asr_options or vad_options (see openlrc.defaults for details)
-    vad_options = {"threshold": 0.1}
-    lrcer = LRCer(transcription=TranscriptionConfig(vad_options=vad_options))
-    lrcer.run('./data/test.mp3', target_lang='zh-cn')
-
-    # Switch between SenseVoice model sizes
-    lrcer = LRCer(transcription=TranscriptionConfig(asr_model='small'))
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', skip_trans=True)
-
-    lrcer = LRCer(transcription=TranscriptionConfig(asr_model='large'))
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', skip_trans=True)
-
-    # Enhance the audio using noise suppression (requires openlrc[full], consumes more time).
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)
-
-    # Change the translation model
-    lrcer = LRCer(translation=TranslationConfig(chatbot_model='claude-3-sonnet-20240229'))
-    lrcer.run('./data/test.mp3', target_lang='zh-cn')
-
-    # Clear temp folder after processing done
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', clear_temp=True)
-
-    # Use OpenRouter via ModelConfig (custom base_url + routed model name)
-    openrouter_model = ModelConfig(
-        provider=ModelProvider.OPENAI,
-        name='anthropic/claude-3.5-haiku',
-        base_url='https://openrouter.ai/api/v1',
-        api_key=os.getenv('OPENROUTER_API_KEY')
-    )
-    fallback_model = ModelConfig(
-        provider=ModelProvider.OPENAI,
-        name='openai/gpt-4.1-nano',
-        base_url='https://openrouter.ai/api/v1',
-        api_key=os.getenv('OPENROUTER_API_KEY')
-    )
-    lrcer = LRCer(
-        translation=TranslationConfig(chatbot_model=openrouter_model, retry_model=fallback_model)
-    )
-
-    # Bilingual subtitle
-    lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
+```powershell
+.\.venv-gpu\Scripts\streamlit.exe run openlrc\gui_streamlit\home.py --server.port 8502
 ```
 
-Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
+Then open:
 
-### Glossary
-
-Add glossary to improve domain specific translation. For example `aoe4-glossary.yaml`:
-
-```json
-{
-  "aoe4": "帝国时代4",
-  "feudal": "封建时代",
-  "2TC": "双TC",
-  "English": "英格兰文明",
-  "scout": "侦察兵"
-}
+```text
+http://localhost:8502
 ```
 
-```python
-lrcer = LRCer(translation=TranslationConfig(glossary='./data/aoe4-glossary.yaml'))
-lrcer.run('./data/test.mp3', target_lang='zh-cn')
+### 4. Configure translation
+
+The GUI supports two common modes:
+
+- direct model credentials such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `OPENROUTER_API_KEY`
+- relay mode through a custom `Base URL` and relay API key
+
+For relay mode, set:
+
+- provider type
+- relay `Base URL`
+- relay model name
+- relay API key
+
+### 5. Run a job
+
+1. Upload audio or video files
+2. Choose source language and target language
+3. Decide whether to use transcribe-only mode
+4. Set the translation fee limit
+5. Click the start button
+
+The GUI will show:
+
+- preprocessing progress
+- transcription progress
+- translation fee estimation before translation starts
+- current translation / export status
+- live log output
+
+## CLI Entry Point
+
+You can also run a local CLI flow with [`run_local.py`](run_local.py):
+
+```powershell
+.\.venv-gpu\Scripts\python.exe .\run_local.py "D:\path\to\audio.mp3" --target-lang zh-cn
 ```
 
-or directly use dictionary to add glossary:
+Transcribe only:
 
-```python
-lrcer = LRCer(translation=TranslationConfig(glossary={"aoe4": "帝国时代4", "feudal": "封建时代"}))
-lrcer.run('./data/test.mp3', target_lang='zh-cn')
+```powershell
+.\.venv-gpu\Scripts\python.exe .\run_local.py "D:\path\to\audio.mp3" --skip-trans
 ```
 
-## Pricing 💰
+## Current Notes
 
-*pricing data from [OpenAI](https://openai.com/pricing)
-and [Anthropic](https://docs.anthropic.com/claude/docs/models-overview#model-comparison)*
+- This fork is optimized for local Windows usage.
+- The GUI now blocks translation early when the configured fee limit is clearly too low.
+- The fee-limit slider supports larger values than upstream-style defaults.
+- The repository ignores local runtime artifacts such as virtual environments, logs, output folders, and GUI config files.
 
-| Model Name                   | Pricing for 1M Tokens <br/>(Input/Output) (USD) | Cost for 1 Hour Audio <br/>(USD) |
-|------------------------------|-------------------------------------------------|----------------------------------|
-| `gpt-3.5-turbo`              | 0.5, 1.5                                        | 0.01                             |
-| `gpt-4o-mini`                | 0.5, 1.5                                        | 0.01                             |
-| `gpt-4-0125-preview`         | 10, 30                                          | 0.5                              |
-| `gpt-4-turbo-preview`        | 10, 30                                          | 0.5                              |
-| `gpt-4o`                     | 5, 15                                           | 0.25                             |
-| `claude-3-haiku-20240307`    | 0.25, 1.25                                      | 0.015                            |
-| `claude-3-sonnet-20240229`   | 3, 15                                           | 0.2                              |
-| `claude-3-opus-20240229`     | 15, 75                                          | 1                                |
-| `claude-3-5-sonnet-20240620` | 3, 15                                           | 0.2                              |
-| `gemini-1.5-flash`           | 0.175, 2.1                                      | 0.01                             |
-| `gemini-1.0-pro`             | 0.5, 1.5                                        | 0.01                             |
-| `gemini-1.5-pro`             | 1.75, 21                                        | 0.1                              |
-| `deepseek-chat`              | 0.18, 2.2                                       | 0.01                             |
+## Development Notes
 
-**Note the cost is estimated based on the token count of the input and output text.
-The actual cost may vary due to the language and audio speed.**
+If you want to continue development on this fork:
 
-### Recommended translation model
-
-For English audio, we recommend `deepseek-chat`, `gpt-4o-mini`, or `gemini-1.5-flash`.
-
-For non-English audio, we recommend `claude-3-5-sonnet-20240620`.
-
-## How it works
-
-![](https://github.com/zh-plus/openlrc/blob/master/resources/how-it-works.png?raw=true)
-
-To maintain context between translation segments, the process is sequential for each audio file.
-
-
-[//]: # (## Comparison to https://microsoft.github.io/autogen/docs/notebooks/agentchat_video_transcript_translate_with_whisper/)
-
-## Development Guide
-
-This project uses [uv](https://github.com/astral-sh/uv) for package management.
-Install `uv` with the standalone installer:
-
-#### On macOS and Linux
-
-```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
+```powershell
+python -m py_compile openlrc\gui_streamlit\home.py
+pytest tests\test_chatbot.py tests\test_translate.py -q
 ```
 
-#### On Windows
+There is also additional local regression coverage in:
 
-```shell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
+- [`tests/test_opt.py`](tests/test_opt.py)
+- [`tests/test_sensevoice_alignment.py`](tests/test_sensevoice_alignment.py)
 
-### Install dependencies
+## Upstream Project
 
-```shell
-uv venv
-uv sync
-```
+The upstream project remains the right reference if you want the original package, documentation, and broader model support:
 
-### Code quality checks
+- Upstream repository: [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc)
+- Upstream license: MIT
 
-Before committing, please make sure the following checks pass locally:
+## License
 
-```shell
-# Lint
-uv run ruff check openlrc/ tests/
-
-# Format
-uv run ruff format --check openlrc/ tests/
-# To auto-fix formatting:
-# uv run ruff format openlrc/ tests/
-
-# Type check
-uv run pyright openlrc/
-```
-
-For live translation testing as a developer (and for CI usage), set:
-
-```shell
-export OPENROUTER_API_KEY="your-openrouter-api-key"
-```
-
-### Build and publish a release
-
-Use `uv` end-to-end for release builds and publishing:
-
-```shell
-# Build source and wheel distributions
-uv build
-
-# Validate the generated metadata before uploading
-uvx twine check dist/*
-
-# Publish to PyPI
-# Preferred for local publishing:
-uv publish
-#
-# Or publish with an explicit token:
-# uv publish --token <pypi-token>
-```
-
-If you prefer GitHub Actions publishing, configure PyPI trusted publishing for this repository and push a version tag such as `v1.6.2`.
-
-## Todo
-
-- [x] [Efficiency] Batched translate/polish for GPT request (enable contextual ability).
-- [x] [Efficiency] Concurrent support for GPT request.
-- [x] [Translation Quality] Make translate prompt more robust according to https://github.com/openai/openai-cookbook.
-- [x] [Feature] Automatically fix json encoder error using GPT.
-- [x] [Efficiency] Asynchronously perform transcription and translation for multiple audio inputs.
-- [x] [Quality] Improve batched translation/polish prompt according
-  to [gpt-subtrans](https://github.com/machinewrapped/gpt-subtrans).
-- [x] [Feature] Input video support.
-- [X] [Feature] Multiple output format support.
-- [x] [Quality] Speech enhancement for input audio.
-- [ ] [Feature] Preprocessor: Voice-music separation.
-- [ ] [Feature] Align ground-truth transcription with audio.
-- [ ] [Quality]
-  Use [multilingual language model](https://www.sbert.net/docs/pretrained_models.html#multi-lingual-models) to assess
-  translation quality.
-- [ ] [Efficiency] Add Azure OpenAI Service support.
-- [ ] [Quality] Use [claude](https://www.anthropic.com/index/introducing-claude) for translation.
-- [ ] [Feature] Add local LLM support.
-- [X] [Feature] Multiple translate engine (Anthropic, Microsoft, DeepL, Google, etc.) support.
-- [ ] [**Feature**] Build
-  a [electron + fastapi](https://ivanyu2021.hashnode.dev/electron-django-desktop-app-integrate-javascript-and-python)
-  GUI for cross-platform application.
-- [x] [Feature] Web-based [streamlit](https://streamlit.io/) GUI.
-- [ ] Add [fine-tuned whisper-large-v2](https://huggingface.co/models?search=whisper-large-v2) models for common
-  languages.
-- [x] [Feature] Add custom OpenAI & Anthropic endpoint support.
-- [ ] [Feature] Add local translation model support (e.g. [SakuraLLM](https://github.com/SakuraLLM/Sakura-13B-Galgame)).
-- [ ] [Quality] Construct translation quality benchmark test for each patch.
-- [ ] [Quality] Split subtitles using
-  LLM ([ref](https://github.com/Huanshere/VideoLingo/blob/ff520309e958dd3048586837d09ce37d3e9ebabd/core/prompts_storage.py#L6)).
-- [ ] [Quality] Trim extra long subtitle using
-  LLM ([ref](https://github.com/Huanshere/VideoLingo/blob/ff520309e958dd3048586837d09ce37d3e9ebabd/core/prompts_storage.py#L311)).
-- [ ] [Others] Add transcribed examples.
-    - [ ] Song
-    - [ ] Podcast
-    - [ ] Audiobook
-
-## Credits
-
-- https://github.com/guillaumekln/faster-whisper
-- https://github.com/m-bain/whisperX
-- https://github.com/openai/openai-python
-- https://github.com/openai/whisper
-- https://github.com/machinewrapped/gpt-subtrans
-- https://github.com/MicrosoftTranslator/Text-Translation-API-V3-Python
-- https://github.com/streamlit/streamlit
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=zh-plus/Open-Lyrics&type=Date)](https://star-history.com/#zh-plus/Open-Lyrics&Date)
-
-## Citation
-
-```
-@book{openlrc2024zh,
-	title = {zh-plus/openlrc},
-	url = {https://github.com/zh-plus/openlrc},
-	author = {Hao, Zheng},
-	date = {2024-09-10},
-	year = {2024},
-	month = {9},
-	day = {10},
-}
-```
+This repository is distributed under the MIT license. See [LICENSE](LICENSE).
