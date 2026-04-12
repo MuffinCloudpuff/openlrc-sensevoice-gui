@@ -1,43 +1,40 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
-# Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py for details
-default_asr_options = {
-    "batch_size": 8,
-    "beam_size": 5,
-    "best_of": 5,
-    "patience": 1,
-    "length_penalty": 1,
-    "repetition_penalty": 1.0,
-    "no_repeat_ngram_size": 0,
-    "temperature": 0.0,
-    # We assume the voice is valid after VAD, log_prob_threshold is not reliable, set these 3 to None to prevent
-    # miss-transcription, see https://github.com/openai/whisper/discussions/29#discussioncomment-3726710 for details
-    "compression_ratio_threshold": None,
-    "log_prob_threshold": None,
-    "no_speech_threshold": None,
-    "condition_on_previous_text": True,
-    "initial_prompt": None,
-    "prefix": None,
-    "suppress_blank": True,
-    "suppress_tokens": [-1],
-    "without_timestamps": False,
-    "word_timestamps": True,
-    "prepend_punctuations": "\"'“¿([{-",
-    "append_punctuations": "\"'.。,，!！?？:：”)]}、",
-    # "hallucination_silence_threshold": 2,
-    "hotwords": None,
-    "chunk_length": None,
+SENSEVOICE_MODEL_PRESETS = {
+    "small": "iic/SenseVoiceSmall",
+    "large": "iic/SenseVoiceLarge",
 }
 
+
+def resolve_sensevoice_model(model_name: str) -> str:
+    """
+    Normalize a user-facing SenseVoice model alias into the concrete model id.
+
+    Examples:
+        ``small`` -> ``iic/SenseVoiceSmall``
+        ``large`` -> ``iic/SenseVoiceLarge``
+    """
+
+    return SENSEVOICE_MODEL_PRESETS.get(model_name.strip().lower(), model_name)
+
+
+# SenseVoice ASR options for FunASR
+# See https://github.com/modelscope/FunASR and https://github.com/FunAudioLLM/SenseVoice
+default_sensevoice_options = {
+    "batch_size_s": 60,       # Batch size in seconds for processing
+    "merge_length_s": 15,     # Merge VAD segments up to this length (seconds)
+    "use_itn": True,          # Inverse text normalization (punctuation, numbers)
+    "output_timestamp": True, # Enable character-level timestamps
+}
+
+# Kept for backward compatibility with legacy code / tests
+default_asr_options = default_sensevoice_options
+
 # Check https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py#L123 for details
+# Note: VAD is now handled by FunASR's fsmn-vad internally, these options are passed to vad_kwargs
 default_vad_options = {
-    "threshold": 0.500,
-    "neg_threshold": 0.363,
-    "min_speech_duration_ms": 0,
-    "max_speech_duration_s": float("inf"),
-    "min_silence_duration_ms": 2000,
-    "speech_pad_ms": 400,
+    "max_single_segment_time": 30000,  # Max segment duration in ms (30 seconds)
 }
 
 default_preprocess_options = {"atten_lim_db": 15}

@@ -3,15 +3,43 @@
 
 from pathlib import Path
 from typing import NamedTuple
+import unicodedata
 
 import pysbd
-from faster_whisper.transcribe import BatchedInferencePipeline, Segment, WhisperModel
-from pysbd.languages import LANGUAGE_CODES
 from tqdm import tqdm
 
-from openlrc.defaults import default_asr_options, default_vad_options
+from openlrc.defaults import default_sensevoice_options, resolve_sensevoice_model
 from openlrc.logger import logger
-from openlrc.utils import Timer, format_timestamp, get_audio_duration, spacy_load
+from openlrc.utils import Timer, format_timestamp, get_audio_duration
+
+
+class ASRWord(NamedTuple):
+    """A single word/character with timing information."""
+
+    start: float
+    end: float
+    word: str
+    probability: float = 1.0
+
+
+class ASRSegment(NamedTuple):
+    """A transcription segment with start/end time and text.
+
+    This replaces faster_whisper.transcribe.Segment with a local data class,
+    decoupling the pipeline from any specific ASR backend.
+    """
+
+    id: int
+    seek: int
+    start: float
+    end: float
+    text: str
+    tokens: list
+    avg_logprob: float
+    compression_ratio: float
+    no_speech_prob: float
+    words: list | None
+    temperature: float
 
 
 class TranscriptionInfo(NamedTuple):
@@ -39,44 +67,64 @@ class TranscriptionInfo(NamedTuple):
         return 1 - self.duration_after_vad / self.duration
 
 
+def _make_segment(seg_id: int, start: float, end: float, text: str, words: list | None = None) -> ASRSegment:
+    """Convenience constructor for ASRSegment with sensible defaults."""
+    return ASRSegment(
+        id=seg_id,
+        seek=0,
+        start=start,
+        end=end,
+        text=text,
+        tokens=[],
+        avg_logprob=0.0,
+        compression_ratio=0.0,
+        no_speech_prob=0.0,
+        words=words,
+        temperature=0.0,
+    )
+
+
 class Transcriber:
     """
-    A class for transcribing audio files using the Whisper model.
+    A class for transcribing audio files using the SenseVoice model via FunASR.
 
     Attributes:
-        model_name (str): The name of the Whisper model to use.
-        compute_type (str): The compute type for the model (e.g., 'float16').
-        device (str): The device to run the model on (e.g., 'cuda').
+        model_name (str): The name of the SenseVoice model to use.
+        device (str): The device to run the model on (e.g., 'cuda:0').
         continuous_scripted (list): List of languages that are continuously scripted.
-        asr_options (dict): Options for the ASR model.
-        vad_options (dict): Options for Voice Activity Detection.
-        whisper_model (BatchedInferencePipeline): The Whisper model pipeline.
+        sensevoice_options (dict): Options for the SenseVoice model.
     """
 
     def __init__(
         self,
-        model_name: str = "large-v3",
+        model_name: str = "iic/SenseVoiceSmall",
         compute_type: str = "float16",
         device: str = "cuda",
         vad_filter: bool = True,
         asr_options: dict | None = None,
         vad_options: dict | None = None,
     ):
-        self.model_name = model_name
-        self.compute_type = compute_type
+        self.model_name = resolve_sensevoice_model(model_name)
         self.device = device
-        # self.no_need_align = ['en', 'ja', 'zh']  # Languages that is accurate enough without sentence alignment
         self.continuous_scripted = ["ja", "zh", "zh-cn", "th", "vi", "lo", "km", "my", "bo"]
-        self.asr_options = asr_options or default_asr_options
-        self.vad_options = vad_options or default_vad_options
-        self.use_vad_model = vad_filter
+        self.sensevoice_options = {**default_sensevoice_options, **(asr_options or {})}
 
-        model = WhisperModel(model_name, device, compute_type=compute_type, num_workers=1)
-        if self.asr_options["batch_size"] == 1:
-            self.whisper_model = model
-            del self.asr_options["batch_size"]
-        else:
-            self.whisper_model = BatchedInferencePipeline(model)
+        from funasr import AutoModel
+
+        model_kwargs = {
+            "model": self.model_name,
+            "device": device,
+        }
+
+        if vad_filter:
+            model_kwargs["vad_model"] = "fsmn-vad"
+            model_kwargs["vad_kwargs"] = {"max_single_segment_time": 30000}
+            if vad_options:
+                model_kwargs["vad_kwargs"].update(vad_options)
+
+        logger.info(f"Loading SenseVoice model: {self.model_name} on {device}")
+        self.model = AutoModel(**model_kwargs)
+        logger.info("SenseVoice model loaded successfully.")
 
     def transcribe(self, audio_path: str | Path, language: str | None = None):
         """
@@ -88,261 +136,317 @@ class Transcriber:
 
         Returns:
             tuple: A tuple containing:
-                - list: List of transcribed segments.
+                - list[ASRSegment]: List of transcribed segments.
                 - TranscriptionInfo: Information about the transcription.
         """
-        seg_gen, info = self.whisper_model.transcribe(
-            str(audio_path),
-            language=language,
-            vad_filter=self.use_vad_model,
-            vad_parameters=self.vad_options,
-            **self.asr_options,
-        )
+        from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
-        segments = []  # [Segment(start, end, text, words=[Word(start, end, word, probability)])]
-        timestamps = 0
-        with tqdm(total=int(info.duration), unit=" seconds") as pbar:
-            for seg in seg_gen:
-                segments.append(seg)
-                pbar.update(int(seg.end - timestamps))
-                timestamps = seg.end
-            if timestamps < info.duration:  # silence at the end of the audio
-                pbar.update(info.duration - timestamps)
+        audio_path = Path(audio_path)
+        total_duration = get_audio_duration(audio_path)
 
-        if not segments:
+        language = self._map_language(language)
+
+        with Timer("SenseVoice transcription"):
+            with tqdm(total=int(total_duration), unit=" seconds", desc="Transcribing") as pbar:
+                res = self.model.generate(
+                    input=str(audio_path),
+                    language=language or "auto",
+                    use_itn=True,
+                    output_timestamp=True,
+                    batch_size_s=self.sensevoice_options.get("batch_size_s", 60),
+                    merge_vad=True,
+                    merge_length_s=self.sensevoice_options.get("merge_length_s", 15),
+                )
+                pbar.update(int(total_duration))
+
+        if not res or not res[0]:
             logger.warning(f"No speech found for {audio_path}")
-            result = []
+            return [], TranscriptionInfo(
+                language=language or "en",
+                duration=total_duration,
+                duration_after_vad=total_duration,
+            )
+
+        result_data = res[0] if isinstance(res[0], list) else res
+        if isinstance(result_data, dict):
+            result_data = [result_data]
+
+        raw_segments = []
+        for item in result_data:
+            raw_text = item.get("text", "")
+            text = rich_transcription_postprocess(raw_text)
+
+            if not text.strip():
+                continue
+
+            raw_segments.append(
+                {
+                    "text": text,
+                    "timestamps": item.get("timestamp", []),  # [[start_ms, end_ms], ...] per word/token
+                    "words": item.get("words", []),
+                }
+            )
+
+        if not raw_segments:
+            logger.warning(f"No speech found for {audio_path}")
+            return [], TranscriptionInfo(
+                language=language or "en",
+                duration=total_duration,
+                duration_after_vad=total_duration,
+            )
+
+        detected_lang = language or self._detect_language(raw_segments[0]["text"])
+
+        with Timer("Sentence Segmentation"):
+            result = self._build_segments(raw_segments, detected_lang)
+
+        if result:
+            duration_after_vad = result[-1].end
         else:
-            with Timer("Sentence Segmentation"):
-                result = self.sentence_split(segments, info.language)
+            duration_after_vad = total_duration
 
         info = TranscriptionInfo(
-            language=info.language, duration=get_audio_duration(audio_path), duration_after_vad=info.duration_after_vad
+            language=detected_lang,
+            duration=total_duration,
+            duration_after_vad=duration_after_vad,
         )
 
-        logger.info(
-            f"VAD removed {format_timestamp(info.duration - info.duration_after_vad)}s of silence ({info.vad_ratio * 100}%) "
-        )
-        if info.vad_ratio > 0.5:
-            logger.warning(
-                f"VAD ratio is too high, check your audio quality. "
-                f"VAD ratio: {info.vad_ratio}, duration: {format_timestamp(info.duration, fmt='srt')}, "
-                f"duration_after_vad: {format_timestamp(info.duration_after_vad, fmt='srt')}. "
-                f"Try to decrease the threshold in vad_options."
+        silence_duration = total_duration - info.duration_after_vad
+        if silence_duration > 0:
+            logger.info(
+                f"Approximate silence removed: {format_timestamp(silence_duration)}s "
+                f"({info.vad_ratio * 100:.1f}%)"
             )
 
         return result, info
 
-    def sentence_split(self, segments: list[Segment], lang: str):
+    def _build_segments(self, raw_segments: list[dict], lang: str) -> list[ASRSegment]:
         """
-        Split transcribed segments into sentences.
+        Convert SenseVoice raw output to ASRSegment list.
 
-        This function takes the raw transcribed segments and splits them into more
-        natural sentence-like units. It handles different languages and uses
-        language-specific segmentation rules.
-
-        Args:
-            segments (List[Segment]): List of transcribed segments from the ASR model.
-            lang (str): Language code of the transcription.
-
-        Returns:
-            list: List of sentence-split segments.
+        For each raw segment, use pysbd to split text into sentences,
+        then map word/token-level timestamps to sentence-level segments.
         """
-        if lang not in LANGUAGE_CODES:
-            logger.warning(f"Language {lang} not supported. Skipping sentence split.")
-            return segments
-
-        # Load language-specific NLP model
-        nlp = spacy_load(lang)
-
-        def seg_from_words(seg: Segment, seg_id: int, words: list, tokens: list):
-            """
-            Create a new segment from a subset of words.
-
-            This helper function constructs a new Segment object from a given
-            list of words, preserving the necessary metadata from the original segment.
-
-            Args:
-                seg (Segment): Original segment containing the words.
-                seg_id (int): New ID for the created segment.
-                words (List): List of Word objects to include in the new segment.
-                tokens (List): List of tokens corresponding to the words.
-
-            Returns:
-                Segment: A new Segment object created from the given words.
-            """
-            text = "".join([word.word for word in words])
-            return Segment(
-                seg_id,
-                seg.seek,
-                words[0].start,
-                words[-1].end,
-                text,
-                tokens,
-                seg.avg_logprob,
-                seg.compression_ratio,
-                seg.no_speech_prob,
-                words,
-                seg.temperature,
-            )
-
-        def mid_split(seg_entry: Segment):
-            """
-            Split a segment roughly in the middle.
-
-            This function attempts to split a segment into two parts, preferably
-            at a natural break point like punctuation or space. If no suitable
-            break point is found, it falls back to splitting based on word gaps
-            or exactly in the middle.
-
-            Args:
-                seg_entry (Segment): The segment to split.
-
-            Returns:
-                list: List of split segments.
-            """
-            assert seg_entry.words is not None, "Segment must have word-level timestamps for splitting"
-            text = seg_entry.text
-            doc = nlp(text)
-
-            def is_punct(char):
-                return doc.vocab[char].is_punct
-
-            splittable = int(len(text) / 3)
-
-            # Attempt to find a natural split point
-            former_words, former_len = [], 0
-            for j, word in enumerate(seg_entry.words):
-                former_words.append(word)
-                former_len += len(word.word)
-
-                # Special handling for languages without spaces between words
-                if lang in self.continuous_scripted and former_len >= splittable:
-                    if word.word.startswith(" "):
-                        break
-                    elif word.word.endswith(" "):
-                        former_words.append(word)
-                        former_len += len(word.word)
-                        break
-
-                # Split at punctuation if possible
-                if former_len >= splittable and is_punct(word.word[-1]):
-                    break
-
-            latter_words = seg_entry.words[len(former_words) :]
-
-            # If no natural split point found, use alternative methods
-            if not latter_words:
-                # Find the largest gap between words
-                gaps = [-1] + [
-                    seg_entry.words[k + 1].start - seg_entry.words[k].end for k in range(len(seg_entry.words) - 1)
-                ]
-                max_gap = max(gaps)
-                split_idx = gaps.index(max_gap)
-
-                if max_gap >= 2:  # Split at the largest gap if it's significant
-                    former_words = seg_entry.words[:split_idx]
-                    latter_words = seg_entry.words[split_idx:]
-                else:  # Otherwise, split exactly in the middle
-                    mid_point = len(seg_entry.words) // 2
-                    former_words = seg_entry.words[:mid_point]
-                    latter_words = seg_entry.words[mid_point:]
-
-            # Safeguard against empty splits
-            if not former_words or not latter_words:
-                logger.warning(f"Empty split detected: {former_words} or {latter_words}, skipping split")
-                return [seg_entry]
-
-            # Create new segments from the split
-            former = seg_from_words(seg_entry, seg_entry.id, former_words, seg_entry.tokens[: len(former_words)])
-            latter = seg_from_words(seg_entry, seg_entry.id + 1, latter_words, seg_entry.tokens[len(former_words) :])
-
-            return [former, latter]
-
-        # Initialize sentence segmenter for the given language
         segmenter = pysbd.Segmenter(language=lang, clean=False)
+        result = []
+        seg_id = 0
 
-        id_cnt = 0
-        sentences = []  # [{'text': , 'start': , 'end': , 'words': [{word: , start: , end: , score: }, ...]}, ...]
-        for segment in segments:
-            assert segment.words is not None, "Segment must have word-level timestamps"
-            # Use pysbd to split the segment text into potential sentences
-            splits = [s for s in segmenter.segment(segment.text) if s]  # Also filter out empty splits
-            word_start = 0
+        for raw in raw_segments:
+            text = raw["text"]
+            timestamps = raw["timestamps"]
+            words = raw.get("words", [])
 
-            for split in splits:
-                # Align words with the split text
-                split_words = []
-                split_words_len = 0
-                for i in range(len(split)):
-                    if word_start + i < len(segment.words):
-                        split_words.append(segment.words[word_start + i])
-                        split_words_len = len("".join([word.word for word in split_words]).rstrip())
-                    else:
-                        logger.warning(
-                            f"Word alignment issue: {word_start + i} >= {len(segment.words)}. "
-                            f"Keeping: {''.join([word.word for word in split_words])}, "
-                            f"Discarding: {split[split_words_len:]}"
-                        )
-                        break
-                    if split_words_len >= len(split.rstrip()):
-                        break
+            sentences = [s for s in segmenter.segment(text) if s.strip()]
 
-                # Sanity checks for split quality
-                if split_words_len >= len(split.rstrip()) + 3:
-                    logger.warning(f"Split words length mismatch: {split_words_len} >= {len(split)} + 3")
-                if split_words_len == 0:
-                    logger.warning(f"Zero-length split detected for: {split}, skipping")
+            if not sentences:
+                start, end = self._get_segment_time(timestamps, 0, len(timestamps))
+                result.append(_make_segment(seg_id, start, end, text.strip()))
+                seg_id += 1
+                continue
+
+            word_offset = 0
+            for sent in sentences:
+                sent_text = sent.strip()
+                alignment = self._align_sentence_to_words(sent_text, words, word_offset)
+
+                if alignment is None:
+                    logger.warning(f"Failed to align sentence to SenseVoice word timestamps: {sent_text!r}")
+                    start_sec, end_sec = self._get_segment_time(timestamps, word_offset, len(timestamps))
+                    result.append(_make_segment(seg_id, start_sec, end_sec, sent_text))
+                    seg_id += 1
+                    word_offset = len(words)
                     continue
 
-                word_start += len(split_words)
+                word_start_idx, word_end_idx = alignment
+                word_slice = words[word_start_idx:word_end_idx]
+                timestamp_slice = timestamps[word_start_idx:word_end_idx]
+                start_sec, end_sec = self._get_segment_time(timestamps, word_start_idx, word_end_idx)
 
-                # Create a new segment for this split
-                entry = seg_from_words(
-                    segment, id_cnt, split_words, segment.tokens[word_start : word_start + len(split_words)]
-                )
+                char_limit = 45 if lang in self.continuous_scripted else 90
+                if len(sent_text) > char_limit and timestamp_slice:
+                    sub_segments = self._split_long_sentence(sent_text, word_slice, timestamp_slice, seg_id, lang)
+                    result.extend(sub_segments)
+                    seg_id += len(sub_segments)
+                else:
+                    result.append(_make_segment(seg_id, start_sec, end_sec, sent_text))
+                    seg_id += 1
 
-                def recursive_segment(entry: Segment):
-                    """
-                    Recursively segment an entry if it's too long.
+                word_offset = word_end_idx
 
-                    This function checks if a segment is too long (based on character count
-                    or duration) and splits it if necessary. It applies different thresholds
-                    for different language types.
+        return result
 
-                    Args:
-                        entry (Segment): The segment to potentially split.
+    def _get_segment_time(self, timestamps: list, start_idx: int, end_idx: int) -> tuple[float, float]:
+        """
+        Get start/end time in seconds from word/token-level timestamps.
 
-                    Returns:
-                        list: List of segments after recursive splitting.
-                    """
-                    # Check if the segment needs splitting
-                    assert entry.words is not None, "Segment must have word-level timestamps"
-                    char_limit = 45 if lang in self.continuous_scripted else 90
-                    if len(entry.text) < char_limit or len(entry.words) == 1:
-                        if entry.end - entry.start > 10:  # Split if duration > 10s
-                            segmented_entries = mid_split(entry)
-                            if len(segmented_entries) == 1:  # Can't be further segmented
-                                return [entry]
+        Args:
+            timestamps: [[start_ms, end_ms], ...] per word/token
+            start_idx: Start token index
+            end_idx: End token index (exclusive)
 
-                            further_segmented = []
-                            for segment in segmented_entries:
-                                further_segmented.extend(recursive_segment(segment))
-                            return further_segmented
-                        else:
-                            return [entry]
-                    else:
-                        # Split in the middle and recursively process the results
-                        segmented_entries = mid_split(entry)
-                        further_segmented = []
-                        for segment in segmented_entries:
-                            further_segmented.extend(recursive_segment(segment))
-                        return further_segmented
+        Returns:
+            (start_seconds, end_seconds)
+        """
+        if not timestamps:
+            return 0.0, 0.0
 
-                # Apply recursive segmentation to handle long sentences
-                segmented_entries = recursive_segment(entry)
+        start_idx = max(0, min(start_idx, len(timestamps) - 1))
+        end_idx = max(0, min(end_idx - 1, len(timestamps) - 1))
 
-                sentences.extend(segmented_entries)
-                id_cnt += len(segmented_entries)
+        try:
+            start_ms = timestamps[start_idx][0]
+            end_ms = timestamps[end_idx][1]
+            return start_ms / 1000.0, end_ms / 1000.0
+        except (IndexError, TypeError):
+            logger.warning("Timestamp index out of range, using fallback")
+            return 0.0, 0.0
 
-        return sentences
+    def _split_long_sentence(self, text: str, words: list, timestamps: list, start_id: int, lang: str) -> list[ASRSegment]:
+        """
+        Split a long sentence into smaller segments using word/token timestamps.
+        """
+        char_limit = 30 if lang in self.continuous_scripted else 60
+        segments = []
+        start = 0
+
+        while start < len(words):
+            end = start + 1
+            best_break = None
+
+            while end <= len(words):
+                candidate_text = self._render_words(words[start:end], lang)
+                if len(candidate_text) > char_limit:
+                    break
+                if self._is_break_token(words[end - 1]):
+                    best_break = end
+                end += 1
+
+            if end > len(words):
+                split_end = len(words)
+            elif best_break is not None and best_break > start:
+                split_end = best_break
+            else:
+                split_end = max(start + 1, end - 1)
+
+            chunk_words = words[start:split_end]
+            chunk_timestamps = timestamps[start:split_end]
+            chunk_text = self._render_words(chunk_words, lang).strip()
+
+            if not chunk_text:
+                start = split_end
+                continue
+
+            try:
+                start_sec = chunk_timestamps[0][0] / 1000.0
+                end_sec = chunk_timestamps[-1][1] / 1000.0
+            except (IndexError, TypeError):
+                start_sec = 0.0
+                end_sec = 0.0
+
+            segments.append(_make_segment(start_id + len(segments), start_sec, end_sec, chunk_text))
+            start = split_end
+
+        return segments
+
+    @staticmethod
+    def _normalize_alignment_text(text: str) -> str:
+        return "".join(ch for ch in text if not ch.isspace() and unicodedata.category(ch) != "So")
+
+    def _align_sentence_to_words(self, sentence: str, words: list[str], start_idx: int) -> tuple[int, int] | None:
+        target = self._normalize_alignment_text(sentence)
+        if not target:
+            return None
+
+        current = ""
+        first_idx = None
+        idx = start_idx
+
+        while idx < len(words):
+            token = self._normalize_alignment_text(words[idx])
+            if not token:
+                idx += 1
+                continue
+
+            candidate = current + token
+            if target.startswith(candidate):
+                if first_idx is None:
+                    first_idx = idx
+                current = candidate
+                idx += 1
+                if current == target:
+                    return first_idx, idx
+                continue
+
+            if first_idx is None:
+                idx += 1
+                continue
+
+            break
+
+        return None
+
+    def _render_words(self, words: list[str], lang: str) -> str:
+        if lang in self.continuous_scripted:
+            return "".join(words)
+
+        no_space_before = {".", ",", "!", "?", ":", ";", "%", ")", "]", "}", "。", "，", "！", "？", "：", "；"}
+        no_space_after = {"(", "[", "{", "$", "#"}
+        join_tokens = {"'", "’", "-", "/"}
+
+        rendered = ""
+        for word in words:
+            if not word:
+                continue
+
+            if not rendered:
+                rendered = word
+                continue
+
+            if word in no_space_before or word in join_tokens or rendered[-1] in join_tokens or rendered[-1] in no_space_after:
+                rendered += word
+            else:
+                rendered += " " + word
+
+        return rendered
+
+    @staticmethod
+    def _is_break_token(word: str) -> bool:
+        return word in {".", ",", "!", "?", ":", ";", "。", "，", "！", "？", "：", "；"}
+
+    @staticmethod
+    def _map_language(lang: str | None) -> str | None:
+        """Map common language codes to SenseVoice format."""
+        if lang is None:
+            return None
+        lang_map = {
+            "zh-cn": "zh",
+            "zh-tw": "zh",
+            "chinese": "zh",
+            "japanese": "ja",
+            "english": "en",
+            "korean": "ko",
+            "cantonese": "yue",
+            "yue": "yue",
+        }
+        return lang_map.get(lang.lower(), lang.lower())
+
+    @staticmethod
+    def _detect_language(text: str) -> str:
+        """Simple language detection from transcribed text."""
+        cjk_count = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+        hiragana_count = sum(1 for c in text if "\u3040" <= c <= "\u309f")
+        katakana_count = sum(1 for c in text if "\u30a0" <= c <= "\u30ff")
+        hangul_count = sum(1 for c in text if "\uac00" <= c <= "\ud7af")
+
+        total = len(text)
+        if total == 0:
+            return "en"
+
+        if hangul_count / total > 0.3:
+            return "ko"
+        if (hiragana_count + katakana_count) / total > 0.2:
+            return "ja"
+        if cjk_count / total > 0.3:
+            return "zh"
+
+        return "en"

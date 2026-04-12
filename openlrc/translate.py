@@ -116,13 +116,17 @@ class LLMTranslator(Translator):
             Tuple[List[str], TranslationContext]: Translated texts and updated context.
         """
 
-        def handle_translation(agent: ChunkedTranslatorAgent) -> tuple[list[str] | None, TranslationContext | None]:
+        def handle_translation(
+            agent: ChunkedTranslatorAgent,
+        ) -> tuple[list[str] | None, TranslationContext | None, ChatBotException | None]:
             trans: list[str] | None = None
             updated_context: TranslationContext | None = None
+            last_error: ChatBotException | None = None
             try:
                 trans, updated_context = agent.translate_chunk(chunk_id, chunk, context)
-            except ChatBotException:
-                logger.error(f"Failed to translate chunk {chunk_id}.")
+            except ChatBotException as e:
+                last_error = e
+                logger.error(f"Failed to translate chunk {chunk_id}: {e}")
 
             if trans is not None and len(trans) != len(chunk) and agent.info.glossary:
                 logger.warning(
@@ -130,29 +134,33 @@ class LLMTranslator(Translator):
                 )
                 try:
                     trans, updated_context = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
-                except ChatBotException:
-                    logger.error(f"Failed to translate chunk {chunk_id}.")
+                except ChatBotException as e:
+                    last_error = e
+                    logger.error(f"Failed to translate chunk {chunk_id}: {e}")
 
-            return trans, updated_context
+            return trans, updated_context, last_error
 
         translated: list[str] | None
         updated_ctx: TranslationContext | None
+        last_error: ChatBotException | None
 
         if self.use_retry_cnt == 0 or not retry_agent:
-            translated, updated_ctx = handle_translation(translator_agent)
+            translated, updated_ctx, last_error = handle_translation(translator_agent)
 
             if retry_agent and (translated is None or len(translated) != len(chunk)):
                 self.use_retry_cnt = 10  # Use retry_agent for the next 10 chunks
                 logger.warning(
                     f"Using retry agent {retry_agent} for chunk {chunk_id}, and next {self.use_retry_cnt} chunks."
                 )
-                translated, updated_ctx = handle_translation(retry_agent)
+                translated, updated_ctx, last_error = handle_translation(retry_agent)
         else:
             logger.info(f"Using retry agent for chunk {chunk_id}, remaining retries: {self.use_retry_cnt}")
-            translated, updated_ctx = handle_translation(retry_agent)
+            translated, updated_ctx, last_error = handle_translation(retry_agent)
             self.use_retry_cnt -= 1
 
         if not translated:
+            if last_error:
+                raise last_error
             raise ChatBotException(f"Failed to translate chunk {chunk_id}.")
 
         return translated, updated_ctx or context

@@ -7,8 +7,7 @@ import sys
 
 def run_gui():
     try:
-        # Assuming the Streamlit app is located at "openlrc/gui/home.py"
-        subprocess.run(["streamlit", "run", "openlrc/gui/home.py"], check=True)
+        subprocess.run(["streamlit", "run", "openlrc/gui_streamlit/home.py"], check=True)
     except subprocess.CalledProcessError as e:
         print(f"Failed to launch the Streamlit app: {e}", file=sys.stderr)
         sys.exit(1)

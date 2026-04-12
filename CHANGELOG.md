@@ -1,3 +1,25 @@
+## Unreleased
+
+Fork-oriented updates for the Chinese-first SenseVoice GUI workflow.
+
+### New Features:
+
+- Add a Streamlit-first local workflow centered on SenseVoice transcription and relay-based translation.
+- Add relay model detection, runtime API-key handling, and GUI startup documentation for local Windows usage.
+- Add translation fee estimation before the LLM translation step begins.
+
+### Fixes:
+
+- Fix a GUI validation bug where relay credentials could pass the initial check but still block the processing flow after clicking "Start".
+- Surface clearer translation failures instead of masking them as generic chunk errors.
+- Improve long-running GUI feedback with better phase progress and visible translation waiting status.
+
+### Other Changes:
+
+- Raise the GUI fee-limit slider maximum from `1.0` to `10.0`.
+- Refresh README attribution so the repository is clearly presented as an independent fork of `openlrc`.
+- Ignore local runtime artifacts such as virtual environments, logs, output folders, and GUI config files.
+
 ## 1.6.2
 
 Refine the transcription and translation pipeline, expand test coverage, and improve the release workflow around `uv`.

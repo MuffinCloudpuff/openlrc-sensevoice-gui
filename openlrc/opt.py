@@ -62,6 +62,31 @@ class SubtitleOptimizer:
 
         self.subtitle.segments = new_elements
 
+    def _join_text(self, left: str, right: str) -> str:
+        if not left:
+            return right
+        if not right:
+            return left
+
+        left_stripped = left.rstrip()
+        right_stripped = right.lstrip()
+        if not left_stripped or not right_stripped:
+            return left_stripped + right_stripped
+
+        if self.lang.lower() in {"zh", "zh-cn", "zh-tw", "ja"}:
+            return left_stripped + right_stripped
+
+        if right_stripped[0] in ",.;:!?%)]}\"'-":
+            return left_stripped + right_stripped
+
+        if left_stripped[-1] in "([{\"/":
+            return left_stripped + right_stripped
+
+        if right_stripped.startswith(("'", "’")) or left_stripped.endswith(("'", "’", "-")):
+            return left_stripped + right_stripped
+
+        return left_stripped + " " + right_stripped
+
     def merge_short(self, duration_threshold=1.2):
         """
         Merge short duration subtitles.
@@ -86,12 +111,12 @@ class SubtitleOptimizer:
                 next_gap = element.start - current_segment.end
                 if previous_gap <= next_gap and previous_gap <= 3:
                     previous_element = optimized_segments.pop()
-                    current_segment.text = previous_element.text + current_segment.text
+                    current_segment.text = self._join_text(previous_element.text, current_segment.text)
                     current_segment.start = previous_element.start
                     optimized_segments.append(current_segment)
                     current_segment = element
                 elif next_gap <= previous_gap and next_gap <= 3:
-                    current_segment.text += element.text
+                    current_segment.text = self._join_text(current_segment.text, element.text)
                     current_segment.end = element.end
                     optimized_segments.append(current_segment)
                     current_segment = None
@@ -110,10 +135,10 @@ class SubtitleOptimizer:
             previous_gap = current_segment.start - optimized_segments[-1].end
             next_gap = next_segment.start - current_segment.end
             if previous_gap <= next_gap and previous_gap <= 3:
-                optimized_segments[-1].text += current_segment.text
+                optimized_segments[-1].text = self._join_text(optimized_segments[-1].text, current_segment.text)
                 optimized_segments[-1].end = current_segment.end
             elif next_gap <= previous_gap and next_gap <= 3:
-                next_segment.text = current_segment.text + next_segment.text
+                next_segment.text = self._join_text(current_segment.text, next_segment.text)
                 next_segment.start = current_segment.start
             else:
                 optimized_segments.append(current_segment)
@@ -123,7 +148,7 @@ class SubtitleOptimizer:
     def _merge_elements(self, merged_element, element):
         if not merged_element:
             return element
-        merged_element.text += element.text
+        merged_element.text = self._join_text(merged_element.text, element.text)
         merged_element.end = element.end
         return merged_element
 

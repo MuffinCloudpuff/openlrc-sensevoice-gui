@@ -4,6 +4,7 @@
 import json
 import os
 import unittest
+from pathlib import Path
 
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
@@ -26,6 +27,34 @@ class TestSubtitleOptimizer(unittest.TestCase):
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.merge_short()
         self.assertEqual(len(optimizer.subtitle.segments), original_len - 1)
+
+    def test_merge_short_adds_space_for_english_sentences(self):
+        subtitle = Subtitle(
+            language="en",
+            segments=[
+                {"start": 0.0, "end": 2.61, "text": "And yet, a total hot mess."},
+                {"start": 2.61, "end": 3.19, "text": "I don't know."},
+                {"start": 5.79, "end": 8.31, "text": "You'll have to ask my ex wife."},
+            ],
+            filename=Path("data/test_en_merge.json"),
+        )
+
+        optimizer = SubtitleOptimizer(subtitle)
+        optimizer.merge_short()
+
+        self.assertEqual(optimizer.subtitle.segments[0].text, "And yet, a total hot mess. I don't know.")
+
+    def test_join_text_keeps_contractions_tight(self):
+        subtitle = Subtitle(
+            language="en",
+            segments=[{"start": 0.0, "end": 1.0, "text": "placeholder"}],
+            filename=Path("data/test_en_join.json"),
+        )
+
+        optimizer = SubtitleOptimizer(subtitle)
+
+        self.assertEqual(optimizer._join_text("it", "'s fine"), "it's fine")
+        self.assertEqual(optimizer._join_text("well", "-known"), "well-known")
 
     def test_merge_repeat(self):
         subtitle = self.subtitle

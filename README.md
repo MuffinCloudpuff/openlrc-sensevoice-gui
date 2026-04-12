@@ -1,4 +1,54 @@
-# Open-Lyrics
+# OpenLRC SenseVoice GUI Fork
+
+Chinese-first local fork of `openlrc`, focused on running SenseVoice transcription and LLM subtitle translation through a Streamlit GUI.
+
+This repository is intended as a practical desktop-style workflow for local use on Windows, especially when you want:
+
+- SenseVoice-based transcription with GPU support
+- Streamlit GUI instead of CLI-first usage
+- custom relay / OpenAI-compatible translation endpoints
+- clearer stage progress during long jobs
+- translation fee estimation before the LLM step starts
+
+> [!IMPORTANT]
+> This is an independent fork and is **not** the official `openlrc` repository.
+> If you want the upstream project, go to [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc).
+
+## Attribution
+
+This project is based on [`zh-plus/openlrc`](https://github.com/zh-plus/openlrc), created by `zh-plus`.
+
+- Original project name: `openlrc` / `Open-Lyrics`
+- Original license: MIT
+- This fork keeps the upstream license and builds on top of that codebase for a different local-product workflow
+
+When redistributing this repository or publishing derived versions, keep the original MIT license text and attribution.
+
+## What This Fork Changes
+
+- Reworked the Streamlit GUI around a Chinese-first local workflow
+- Added better progress visibility for preprocessing, transcription, translation, and export
+- Added support for custom relay endpoints and relay model detection in the GUI
+- Added translation fee estimation and clearer fee-limit warnings before translation starts
+- Fixed a GUI credential-validation bug that could make the page appear stuck after clicking "Start"
+- Added local startup helpers for running the GUI with a GPU environment
+
+## Local GUI Quick Start
+
+1. Read [GUI_STARTUP.md](GUI_STARTUP.md) for the Windows Streamlit startup flow.
+2. Start the app with your GPU environment, or adapt it to your own Python environment.
+3. Open the Streamlit page in the browser and configure:
+   - SenseVoice model
+   - device / compute type
+   - translation model or relay endpoint
+   - fee limit
+4. Upload audio or video, then start processing.
+
+You can also use [run_local.py](run_local.py) as a simple local CLI entry point.
+
+## Upstream README
+
+The rest of this README keeps the upstream project documentation as a technical reference, with local adjustments where needed.
 
 [![PyPI](https://img.shields.io/pypi/v/openlrc)](https://pypi.org/project/openlrc/)
 [![PyPI - License](https://img.shields.io/pypi/l/openlrc)](https://pypi.org/project/openlrc/)
@@ -205,6 +255,13 @@ if __name__ == '__main__':
     vad_options = {"threshold": 0.1}
     lrcer = LRCer(transcription=TranscriptionConfig(vad_options=vad_options))
     lrcer.run('./data/test.mp3', target_lang='zh-cn')
+
+    # Switch between SenseVoice model sizes
+    lrcer = LRCer(transcription=TranscriptionConfig(asr_model='small'))
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', skip_trans=True)
+
+    lrcer = LRCer(transcription=TranscriptionConfig(asr_model='large'))
+    lrcer.run('./data/test.mp3', target_lang='zh-cn', skip_trans=True)
 
     # Enhance the audio using noise suppression (requires openlrc[full], consumes more time).
     lrcer.run('./data/test.mp3', target_lang='zh-cn', noise_suppress=True)

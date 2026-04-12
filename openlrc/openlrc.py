@@ -16,10 +16,10 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from faster_whisper.transcribe import Segment
+    from openlrc.transcribe import ASRSegment as Segment
 
 from openlrc.config import TranscriptionConfig, TranslationConfig
-from openlrc.defaults import default_asr_options, default_preprocess_options, default_vad_options
+from openlrc.defaults import default_preprocess_options, default_sensevoice_options, default_vad_options
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import BilingualSubtitle, Subtitle
@@ -115,7 +115,7 @@ class LRCer:
             transcription_fields = {
                 k: v
                 for k, v in legacy_used.items()
-                if k in ("whisper_model", "compute_type", "device", "asr_options", "vad_options", "preprocess_options")
+                if k in ("whisper_model", "asr_model", "compute_type", "device", "asr_options", "vad_options", "preprocess_options")
             }
             translation_fields = {
                 k: v
@@ -132,6 +132,9 @@ class LRCer:
                     "is_force_glossary_used",
                 )
             }
+            # Remap legacy whisper_model to asr_model
+            if "whisper_model" in transcription_fields:
+                transcription_fields["asr_model"] = transcription_fields.pop("whisper_model")
             transcription = TranscriptionConfig(**transcription_fields)
             translation = TranslationConfig(**translation_fields)
 
@@ -154,7 +157,7 @@ class LRCer:
         self.consumer_thread = self._translation_config.consumer_thread
 
         # Merge default options with provided options
-        self.asr_options = {**default_asr_options, **(self._transcription_config.asr_options or {})}
+        self.asr_options = {**default_sensevoice_options, **(self._transcription_config.asr_options or {})}
         self.vad_options = {**default_vad_options, **(self._transcription_config.vad_options or {})}
         self.preprocess_options = {
             **default_preprocess_options,
@@ -175,7 +178,7 @@ class LRCer:
             with self._transcriber_lock:
                 if self._transcriber is None:
                     self._transcriber = Transcriber(
-                        model_name=self._transcription_config.whisper_model,
+                        model_name=self._transcription_config.asr_model,
                         compute_type=self._transcription_config.compute_type,
                         device=self._transcription_config.device,
                         asr_options=self.asr_options,
@@ -334,7 +337,12 @@ class LRCer:
         final_json_path = translated_path.with_name(f"{base_name}.json")
 
         if final_json_path.exists():
-            return Subtitle.from_json(final_json_path)
+            try:
+                if final_json_path.stat().st_mtime >= transcribed_opt_sub.filename.stat().st_mtime:
+                    return Subtitle.from_json(final_json_path)
+                logger.info(f"Found stale final subtitle cache, regenerating: {final_json_path}")
+            except FileNotFoundError:
+                pass
 
         if skip_trans:
             shutil.copy(transcribed_opt_sub.filename, final_json_path)

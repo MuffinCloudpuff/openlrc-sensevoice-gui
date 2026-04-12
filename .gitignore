@@ -1,6 +1,17 @@
 # Project exclude paths
 .idea
 .env
+.venv/
+.venv-gpu/
+.playwright-cli/
+.openlrc_gui_config.json
+json_artifacts/
+output/
+streamlit*.log
+translate_intermediate.json
+tests/data/preprocessed/
+tests/data/test_audio.lrc
+wheels/
 run.py
 /data/
 /dist/

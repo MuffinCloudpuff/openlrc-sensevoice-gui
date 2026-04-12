@@ -13,16 +13,18 @@ class TranscriptionConfig:
     Configuration for the transcription stage.
 
     Args:
-        whisper_model: Name of whisper model. Default: ``large-v3``
+        asr_model: Name of ASR model. Default: ``iic/SenseVoiceSmall``.
+            Accepts full model ids like ``iic/SenseVoiceLarge`` and aliases
+            like ``small`` / ``large``.
         compute_type: Computation type (``default``, ``int8``, ``int8_float16``,
             ``int16``, ``float16``, ``float32``). Default: ``float16``
         device: Device for computation. Default: ``cuda``
-        asr_options: Parameters for whisper model.
+        asr_options: Parameters for the ASR model (SenseVoice).
         vad_options: Parameters for VAD model.
         preprocess_options: Options for audio preprocessing.
     """
 
-    whisper_model: str = "large-v3"
+    asr_model: str = "iic/SenseVoiceSmall"
     compute_type: str = "float16"
     device: str = "cuda"
     asr_options: dict | None = None
