@@ -75,6 +75,12 @@ def choose_folder_dialog(initial_dir: str = "") -> str:
     return selected or ""
 
 
+def apply_pending_scan_root_dir() -> None:
+    pending_dir = st.session_state.pop("scan_root_dir_input_pending", None)
+    if pending_dir is not None:
+        st.session_state["scan_root_dir_input"] = pending_dir
+
+
 def inject_custom_font(font_path: Path, font_family: str = "YuanShen") -> None:
     if not font_path.exists():
         return
@@ -967,7 +973,10 @@ save_payload = {
     "device": device,
     "compute_type": compute_type,
     "proxy": proxy,
-    "scan_root_dir": st.session_state.get("scan_root_dir", saved_gui_config.get("scan_root_dir", "")),
+    "scan_root_dir": st.session_state.get(
+        "scan_root_dir_input",
+        st.session_state.get("scan_root_dir", saved_gui_config.get("scan_root_dir", "")),
+    ),
     "use_custom_translation_endpoint": use_custom_translation_endpoint,
     "relay_provider": relay_provider,
     "relay_base_url": relay_base_url,
@@ -996,13 +1005,18 @@ confirmed_translation_selection: list[str] = []
 with main_area:
     st.markdown('<div class="panel-title">步骤 1 · 上传与任务参数</div>', unsafe_allow_html=True)
     st.markdown('<div class="panel-note">选择一个根文件夹，系统会递归扫描其中所有音频文件，并把生成的 LRC 直接保存回源文件所在目录。</div>', unsafe_allow_html=True)
-    initial_scan_dir = st.session_state.get("scan_root_dir", saved_gui_config.get("scan_root_dir", ""))
+    apply_pending_scan_root_dir()
+    if "scan_root_dir_input" not in st.session_state:
+        st.session_state["scan_root_dir_input"] = st.session_state.get(
+            "scan_root_dir",
+            saved_gui_config.get("scan_root_dir", ""),
+        )
+    initial_scan_dir = st.session_state["scan_root_dir_input"]
     folder_col, browse_col = st.columns([1, 0.18], gap="small")
     with folder_col:
         scan_root_dir = st.text_input(
             "根文件夹",
-            value=initial_scan_dir,
-            key="scan_root_dir",
+            key="scan_root_dir_input",
             placeholder="选择包含音频文件的根目录",
         )
     with browse_col:
@@ -1010,7 +1024,7 @@ with main_area:
         if st.button("选择", use_container_width=True):
             selected_dir = choose_folder_dialog(initial_scan_dir)
             if selected_dir:
-                st.session_state["scan_root_dir"] = selected_dir
+                st.session_state["scan_root_dir_input_pending"] = selected_dir
                 st.rerun()
 
     selected_root_path = Path(scan_root_dir).expanduser() if scan_root_dir.strip() else None

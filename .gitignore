@@ -12,6 +12,8 @@ translate_intermediate.json
 tests/data/preprocessed/
 tests/data/test_audio.lrc
 wheels/
+models/
+HY-MT1.5-1.8B-GPTQ-Int4/
 run.py
 /data/
 /dist/
