@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260516-log-layout" />
   </head>
   <body>
     <div class="app-shell">
@@ -150,8 +150,7 @@
         <section id="providerPanel" class="stage-view">
           <div class="view-head">
             <div>
-              <div class="panel-title">Provider 与 replan</div>
-              <div class="panel-desc">只启用当前选中的翻译模块，其他模块不参与执行。</div>
+              <div class="panel-title">翻译模块</div>
             </div>
             <button id="testLocalMtBtn" class="ghost-btn">
               <span class="material-symbols-outlined">science</span>
@@ -161,7 +160,7 @@
           <div class="provider-workspace">
             <div id="providerCards" class="provider-grid"></div>
             <div class="replan-box">
-              <div class="replan-title">当前模块执行链路</div>
+              <div class="replan-title">执行链路</div>
               <pre id="replanText" class="replan-text"></pre>
             </div>
           </div>
@@ -196,20 +195,50 @@
       <aside id="settingsDrawer" class="settings-drawer">
         <div class="drawer-head">
           <div>
-            <div class="panel-title">设置抽屉</div>
-            <div class="panel-desc">数据驱动表单，仅启用当前模式对应字段。</div>
+            <div class="panel-title">翻译模型</div>
+            <div class="panel-desc">按模式切换，只显示当前需要的字段。</div>
           </div>
           <button id="closeSettingsBtn" class="round-btn" title="关闭设置">
             <span class="material-symbols-outlined">close</span>
           </button>
         </div>
 
-        <div class="drawer-section">
-          <div class="section-title">翻译模式</div>
+        <div class="drawer-section mode-section mode-common" data-mode-section="common">
+          <div class="section-title">翻译模型</div>
           <select id="translation_backend"></select>
+        </div>
+
+        <div class="drawer-section mode-section mode-relay" data-mode-section="relay">
+          <div class="section-title">中转平台</div>
+          <input id="relay_base_url" type="text" placeholder="https://api.example.com/v1" />
+          <input id="relay_api_key" type="password" placeholder="密钥" />
+          <input id="relay_model_name" type="text" placeholder="选择或输入模型名" />
+        </div>
+
+        <div class="drawer-section mode-section mode-official" data-mode-section="official">
+          <div class="section-title">官方 API</div>
+          <select id="official_provider"></select>
+          <input id="official_api_key" type="password" placeholder="密钥" />
+          <input id="chatbot_model" type="text" placeholder="选择或输入模型名" />
+        </div>
+
+        <div class="drawer-section drawer-sync-fields" hidden>
           <select id="endpoint_mode"></select>
           <select id="relay_provider"></select>
-          <input id="chatbot_model" type="text" placeholder="gpt-4.1-nano" />
+          <input id="openai_api_key" type="password" placeholder="OpenAI Key" />
+          <input id="anthropic_api_key" type="password" placeholder="Anthropic Key" />
+          <input id="google_api_key" type="password" placeholder="Google Key" />
+          <input id="openrouter_api_key" type="password" placeholder="OpenRouter Key" />
+          <input id="local_mt_model_id" type="text" />
+          <input id="local_mt_host" type="text" />
+          <input id="local_mt_tokenizer_dir" type="text" />
+          <input id="local_mt_gguf_path" type="text" />
+          <input id="local_mt_max_new_tokens" type="number" />
+          <input id="local_mt_batch_size" type="number" />
+          <input id="local_mt_temperature" type="number" step="0.1" />
+          <input id="local_mt_top_p" type="number" step="0.1" />
+          <input id="local_mt_top_k" type="number" />
+          <input id="local_mt_repetition_penalty" type="number" step="0.01" />
         </div>
 
         <div class="drawer-section">
@@ -239,33 +268,6 @@
           <select id="device"></select>
           <select id="compute_type"></select>
           <input id="proxy" type="text" placeholder="http://127.0.0.1:7890" />
-        </div>
-
-        <div class="drawer-section">
-          <div class="section-title">官方 / 中转 API</div>
-          <input id="relay_base_url" type="text" placeholder="https://api.example.com/v1" />
-          <input id="relay_model_name" type="text" placeholder="gpt-4.1-mini" />
-          <input id="relay_api_key" type="password" placeholder="可选" />
-          <input id="openai_api_key" type="password" placeholder="OpenAI Key" />
-          <input id="anthropic_api_key" type="password" placeholder="Anthropic Key" />
-          <input id="google_api_key" type="password" placeholder="Google Key" />
-          <input id="openrouter_api_key" type="password" placeholder="OpenRouter Key" />
-        </div>
-
-        <div class="drawer-section">
-          <div class="section-title">本地 HY-MT</div>
-          <input id="local_mt_model_id" type="text" />
-          <input id="local_mt_host" type="text" />
-          <input id="local_mt_tokenizer_dir" type="text" />
-          <input id="local_mt_gguf_path" type="text" />
-          <div class="mini-grid">
-            <input id="local_mt_max_new_tokens" type="number" />
-            <input id="local_mt_batch_size" type="number" />
-            <input id="local_mt_temperature" type="number" step="0.1" />
-            <input id="local_mt_top_p" type="number" step="0.1" />
-            <input id="local_mt_top_k" type="number" />
-            <input id="local_mt_repetition_penalty" type="number" step="0.01" />
-          </div>
         </div>
 
         <div class="drawer-section">
@@ -299,6 +301,6 @@
 
     <div id="toastHost" class="toast-host"></div>
 
-    <script src="/assets/app.js"></script>
+    <script src="/assets/app.js?v=20260516-log-layout"></script>
   </body>
 </html>

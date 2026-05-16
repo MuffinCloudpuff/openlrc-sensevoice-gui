@@ -369,6 +369,11 @@ body.is-resizing .nav-resize-handle::after {
   align-items: stretch;
 }
 
+#logPanel.active {
+  gap: 0.875rem;
+  overflow: hidden;
+}
+
 .entry-layout {
   display: grid;
   gap: 1.125rem;
@@ -581,6 +586,128 @@ body.is-resizing .nav-resize-handle::after {
 .drawer-section input,
 .drawer-section select {
   font-size: 0.86rem;
+}
+
+.native-select-hidden {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.drawer-section select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2.5rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--stone-400) 50%),
+    linear-gradient(135deg, var(--stone-400) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.15rem) calc(50% - 0.15rem),
+    calc(100% - 0.8rem) calc(50% - 0.15rem);
+  background-size: 0.34rem 0.34rem, 0.34rem 0.34rem;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.drawer-section select option {
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.custom-select {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-button {
+  width: 100%;
+  min-height: 2.625rem;
+  border-radius: 0.875rem;
+  border: 0.0625rem solid var(--line);
+  background: rgba(250, 250, 249, 0.72);
+  color: var(--ink);
+  padding: 0.625rem 0.75rem;
+  outline: none;
+  transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, transform 0.16s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-select-button:hover {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.custom-select-button:focus {
+  border-color: rgba(197, 160, 89, 0.58);
+  box-shadow: 0 0 0 0.25rem rgba(197, 160, 89, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.custom-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.custom-select-icon {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  color: var(--stone-400);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.custom-select.open .custom-select-icon {
+  transform: rotate(180deg);
+  color: var(--ink-soft);
+}
+
+.custom-select-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.45rem);
+  z-index: 80;
+  display: none;
+  padding: 0.45rem;
+  border-radius: 1rem;
+  border: 0.0625rem solid var(--line);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(1rem);
+  box-shadow: var(--shadow-panel);
+}
+
+.custom-select.open .custom-select-menu {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.custom-select-option {
+  min-height: 2.3rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--ink-soft);
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.custom-select-option:hover,
+.custom-select-option.selected {
+  background: rgba(197, 160, 89, 0.12);
+  color: var(--ink);
 }
 
 .field input:focus,
@@ -809,6 +936,39 @@ body.is-resizing .nav-resize-handle::after {
   font-weight: 900;
 }
 
+.provider-state {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 62.4375rem;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  margin-top: 0.25rem;
+}
+
+.provider-state-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 62.4375rem;
+  background: #9ca3af;
+  box-shadow: 0 0 0 0.25rem rgba(156, 163, 175, 0.12);
+}
+
+.provider-state.ok .provider-state-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 0.25rem rgba(22, 163, 74, 0.16);
+}
+
+.provider-state.error .provider-state-dot {
+  background: #dc2626;
+  box-shadow: 0 0 0 0.25rem rgba(220, 38, 38, 0.16);
+}
+
+.provider-state.idle .provider-state-dot {
+  background: #cbd5e1;
+  box-shadow: 0 0 0 0.25rem rgba(203, 213, 225, 0.12);
+}
+
 .provider-meta,
 .output-meta,
 .job-meta {
@@ -850,7 +1010,11 @@ body.is-resizing .nav-resize-handle::after {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15.625rem, 1fr));
   gap: 0.75rem;
-  margin-bottom: 0.875rem;
+  max-height: min(30vh, 19rem);
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
+  flex: 0 0 auto;
 }
 
 .job-card {
@@ -875,7 +1039,7 @@ body.is-resizing .nav-resize-handle::after {
 
 .log-console {
   flex: 1;
-  min-height: 0;
+  min-height: min(35vh, 22rem);
   overflow: auto;
   padding: 1rem;
   margin: 0;
@@ -952,6 +1116,11 @@ body.is-resizing .nav-resize-handle::after {
   border: 0.0625rem solid var(--line-soft);
   display: grid;
   gap: 0.625rem;
+}
+
+.mode-section[hidden],
+.drawer-sync-fields[hidden] {
+  display: none !important;
 }
 
 .confirmation-dialog {

@@ -9,11 +9,13 @@ from ...gui_qt.translation.replan import build_replan_text
 def list_provider_payloads(config: AppConfig) -> list[dict]:
     payloads: list[dict] = []
     for provider in TRANSLATION_PROVIDERS:
-        errors = []
-        try:
-            errors = provider.validate(config)
-        except Exception as exc:
-            errors = [str(exc)]
+        is_active = provider.label == config.translation_backend
+        errors: list[str] = []
+        if is_active:
+            try:
+                errors = provider.validate(config)
+            except Exception as exc:
+                errors = [str(exc)]
         payloads.append(
             {
                 "backend_key": provider.backend_key,
@@ -21,13 +23,13 @@ def list_provider_payloads(config: AppConfig) -> list[dict]:
                 "module_file": provider.module_file,
                 "estimated_duration": provider.estimated_duration,
                 "summary": provider.summary(config),
-                "active": provider.label == config.translation_backend,
+                "active": is_active,
                 "validation_errors": errors,
-                "replan_text": build_replan_text(config) if provider.label == config.translation_backend else "",
+                "replan_text": build_replan_text(config) if is_active else "",
                 "replan_steps": [
                     {"step": step.step, "duration_label": step.duration_label}
                     for step in provider.build_replan(config)
-                ],
+                ] if is_active else [],
             }
         )
     return payloads

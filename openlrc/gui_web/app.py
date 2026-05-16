@@ -238,6 +238,18 @@ def api_cancel_job(job_id: str) -> dict:
     return {"ok": True, "job": record.to_dict()}
 
 
+@app.delete("/api/jobs/{job_id}")
+def api_delete_job(job_id: str) -> dict:
+    try:
+        record = job_manager.delete_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="job not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="请先取消正在运行的任务，再删除。") from exc
+    _publish_dashboard_event("job_changed", {"job_id": job_id, "deleted_job_id": job_id, "jobs": [item.to_dict() for item in job_manager.list_jobs()]})
+    return {"ok": True, "deleted_job_id": record.id}
+
+
 @app.post("/api/jobs/{job_id}/retry")
 def api_retry_job(job_id: str) -> dict:
     record = job_manager.get_job(job_id)

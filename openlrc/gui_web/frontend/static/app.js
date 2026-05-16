@@ -17,6 +17,8 @@ const state = {
   snapshotReady: false,
 };
 
+const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
 const SRC_LANG_OPTIONS = [
   "自动检测",
   "ca",
@@ -104,21 +106,14 @@ const NUMBER_FIELDS = new Set([
 ]);
 
 const BOOLEAN_FIELDS = new Set(CHECKBOX_FIELD_IDS);
-const LOCAL_MT_FIELDS = new Set([
-  "local_mt_model_id",
-  "local_mt_host",
-  "local_mt_tokenizer_dir",
-  "local_mt_gguf_path",
-  "local_mt_max_new_tokens",
-  "local_mt_batch_size",
-  "local_mt_temperature",
-  "local_mt_top_p",
-  "local_mt_top_k",
-  "local_mt_repetition_penalty",
-]);
-const RELAY_FIELDS = new Set(["endpoint_mode", "relay_provider", "relay_base_url", "relay_model_name", "relay_api_key"]);
-const OFFICIAL_KEY_FIELDS = new Set(["openai_api_key", "anthropic_api_key", "google_api_key", "openrouter_api_key"]);
-
+const OFFICIAL_PROVIDER_OPTIONS = [
+  { label: "GPT", value: "openai_api_key", modelPlaceholder: "gpt-4.1-nano" },
+  { label: "Gemini", value: "google_api_key", modelPlaceholder: "gemini-2.5-flash" },
+  { label: "Claude", value: "anthropic_api_key", modelPlaceholder: "claude-3-5-sonnet-latest" },
+  { label: "OpenRouter", value: "openrouter_api_key", modelPlaceholder: "openrouter/auto" },
+];
+const OFFICIAL_PROVIDER_MAP = new Map(OFFICIAL_PROVIDER_OPTIONS.map((item) => [item.value, item]));
+const RELAY_PROVIDER_OPTIONS = ["OpenAI 兼容", "Anthropic 兼容"];
 function $(id) {
   return document.getElementById(id);
 }
@@ -168,27 +163,235 @@ async function fetchJson(url, options = {}) {
   return payload;
 }
 
+async function fetchText(url, options = {}) {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || response.statusText);
+  }
+  return text;
+}
+
 function populateSelect(id, values, selected) {
   const el = $(id);
   el.innerHTML = "";
-  for (const value of values) {
+  for (const item of values) {
     const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
+    if (typeof item === "object" && item !== null) {
+      option.value = item.value;
+      option.textContent = item.label;
+    } else {
+      option.value = item;
+      option.textContent = item;
+    }
     el.appendChild(option);
   }
   if (selected !== undefined && selected !== null) {
     el.value = selected;
   }
+  syncCustomSelect(id);
 }
 
 function initStaticSelects() {
   populateSelect("src_lang", SRC_LANG_OPTIONS, "自动检测");
   populateSelect("translation_backend", ["官方 API", "中转 API", "本地 HY-MT"], "中转 API");
   populateSelect("endpoint_mode", ["中转平台", "官方 API"], "中转平台");
-  populateSelect("relay_provider", ["OpenAI 兼容", "Anthropic 兼容"], "OpenAI 兼容");
+  populateSelect("relay_provider", RELAY_PROVIDER_OPTIONS, "OpenAI 兼容");
+  populateSelect("official_provider", OFFICIAL_PROVIDER_OPTIONS, OFFICIAL_PROVIDER_OPTIONS[0].value);
   populateSelect("device", ["cuda", "cpu"], "cuda");
   populateSelect("compute_type", ["int8", "int8_float16", "int16", "float16", "float32"], "float16");
+}
+
+function selectedOptionText(selectEl) {
+  return selectEl?.selectedOptions?.[0]?.textContent || selectEl?.value || "";
+}
+
+function closeCustomSelects(except = null) {
+  document.querySelectorAll(".custom-select.open").forEach((node) => {
+    if (node !== except) {
+      node.classList.remove("open");
+      node.querySelector(".custom-select-button")?.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+function renderCustomSelectOptions(selectEl, customEl) {
+  const menu = customEl.querySelector(".custom-select-menu");
+  if (!menu) return;
+  menu.innerHTML = "";
+
+  for (const option of selectEl.options) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "custom-select-option";
+    item.dataset.value = option.value;
+    item.textContent = option.textContent;
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", String(option.value === selectEl.value));
+    if (option.value === selectEl.value) {
+      item.classList.add("selected");
+    }
+    item.addEventListener("click", () => {
+      selectEl.value = option.value;
+      selectEl.dispatchEvent(new Event("input", { bubbles: true }));
+      selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+      syncCustomSelect(selectEl.id);
+      closeCustomSelects();
+    });
+    menu.appendChild(item);
+  }
+}
+
+function syncCustomSelect(id) {
+  const selectEl = $(id);
+  const customEl = selectEl?.nextElementSibling?.classList?.contains("custom-select")
+    ? selectEl.nextElementSibling
+    : null;
+  if (!selectEl || !customEl) return;
+
+  customEl.querySelector(".custom-select-value").textContent = selectedOptionText(selectEl);
+  renderCustomSelectOptions(selectEl, customEl);
+}
+
+function syncCustomSelects() {
+  document.querySelectorAll("select[data-custom-select='1']").forEach((selectEl) => {
+    syncCustomSelect(selectEl.id);
+  });
+}
+
+function enhanceDrawerSelects() {
+  const selects = document.querySelectorAll(".drawer-section:not(.drawer-sync-fields) select");
+  selects.forEach((selectEl) => {
+    if (selectEl.dataset.customSelect === "1") {
+      syncCustomSelect(selectEl.id);
+      return;
+    }
+
+    selectEl.dataset.customSelect = "1";
+    selectEl.classList.add("native-select-hidden");
+
+    const customEl = document.createElement("div");
+    customEl.className = "custom-select";
+    customEl.innerHTML = `
+      <button class="custom-select-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span class="custom-select-value"></span>
+        <span class="material-symbols-outlined custom-select-icon">expand_more</span>
+      </button>
+      <div class="custom-select-menu" role="listbox"></div>
+    `;
+    selectEl.insertAdjacentElement("afterend", customEl);
+
+    const button = customEl.querySelector(".custom-select-button");
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const shouldOpen = !customEl.classList.contains("open");
+      closeCustomSelects(customEl);
+      customEl.classList.toggle("open", shouldOpen);
+      button.setAttribute("aria-expanded", String(shouldOpen));
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+        event.preventDefault();
+        if (!customEl.classList.contains("open")) {
+          closeCustomSelects(customEl);
+          customEl.classList.add("open");
+          button.setAttribute("aria-expanded", "true");
+        }
+      }
+      if (event.key === "Escape") {
+        customEl.classList.remove("open");
+        button.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    selectEl.addEventListener("change", () => syncCustomSelect(selectEl.id));
+    selectEl.addEventListener("input", () => syncCustomSelect(selectEl.id));
+    syncCustomSelect(selectEl.id);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".custom-select")) {
+      closeCustomSelects();
+    }
+  });
+}
+
+function backendMode(backend = "") {
+  if (backend === "本地 HY-MT") return "local";
+  if (backend === "官方 API") return "official";
+  return "relay";
+}
+
+function getOfficialProviderField(config = collectConfig()) {
+  if (state.officialProviderField && OFFICIAL_PROVIDER_MAP.has(state.officialProviderField)) {
+    return state.officialProviderField;
+  }
+  for (const provider of OFFICIAL_PROVIDER_OPTIONS) {
+    if (String(config?.[provider.value] || "").trim()) {
+      return provider.value;
+    }
+  }
+  const saved = localStorage.getItem("openlrc.officialProviderField");
+  if (saved && OFFICIAL_PROVIDER_MAP.has(saved)) {
+    return saved;
+  }
+  return OFFICIAL_PROVIDER_OPTIONS[0].value;
+}
+
+function commitOfficialProviderControls(
+  providerField = $("official_provider")?.value || state.officialProviderField || OFFICIAL_PROVIDER_OPTIONS[0].value
+) {
+  const keyInput = $("official_api_key");
+  const hiddenInput = $(providerField);
+  if (hiddenInput && keyInput) {
+    hiddenInput.value = keyInput.value;
+  }
+}
+
+function syncOfficialProviderControls(config = collectConfig()) {
+  const providerSelect = $("official_provider");
+  const keyInput = $("official_api_key");
+  const chatbotModel = $("chatbot_model");
+  if (!providerSelect || !keyInput) return;
+
+  const providerField = getOfficialProviderField(config);
+  const providerMeta = OFFICIAL_PROVIDER_MAP.get(providerField) || OFFICIAL_PROVIDER_OPTIONS[0];
+  providerSelect.value = providerField;
+  keyInput.value = String(config?.[providerField] || "");
+  keyInput.placeholder = `${providerMeta.label} 密钥`;
+  if (chatbotModel) {
+    chatbotModel.placeholder = providerMeta.modelPlaceholder;
+  }
+  state.officialProviderField = providerField;
+  localStorage.setItem("openlrc.officialProviderField", providerField);
+  syncCustomSelect("official_provider");
+}
+
+function syncTranslationModeUI(config = collectConfig()) {
+  const backend = config.translation_backend || "中转 API";
+  const mode = backendMode(backend);
+  const drawer = $("settingsDrawer");
+  if (drawer) {
+    drawer.dataset.translationBackend = backend;
+  }
+
+  document.querySelectorAll("[data-mode-section]").forEach((section) => {
+    const sectionMode = section.getAttribute("data-mode-section");
+    section.hidden = sectionMode !== "common" && sectionMode !== mode;
+  });
+
+  const endpointMode = $("endpoint_mode");
+  if (endpointMode) {
+    endpointMode.value = mode === "relay" ? "中转平台" : "官方 API";
+  }
+  syncCustomSelect("translation_backend");
+
+  if (mode === "official") {
+    syncOfficialProviderControls(config);
+  } else {
+    populateSelect("relay_provider", RELAY_PROVIDER_OPTIONS, config.relay_provider || "OpenAI 兼容");
+    syncCustomSelect("relay_provider");
+  }
 }
 
 function initInputs(config) {
@@ -208,9 +411,11 @@ function initInputs(config) {
     }
   }
   setRootDir(config?.scan_root_dir || "", "manual", { autoScan: false, autoSave: false });
+  syncTranslationModeUI(config);
 }
 
 function collectConfig() {
+  commitOfficialProviderControls();
   const payload = {};
   for (const id of LIST_FIELD_IDS) {
     const el = $(id);
@@ -223,6 +428,7 @@ function collectConfig() {
       payload[id] = el.value;
     }
   }
+  payload.remember_relay_api_key = Boolean(String(payload.relay_api_key || "").trim());
   return payload;
 }
 
@@ -231,25 +437,7 @@ function configSignature(payload = collectConfig()) {
 }
 
 function updateProviderFieldState(config = collectConfig()) {
-  const backend = config.translation_backend || "中转 API";
-  const localEnabled = backend === "本地 HY-MT";
-  const relayEnabled = backend === "中转 API";
-  const officialEnabled = backend === "官方 API";
-
-  for (const id of LOCAL_MT_FIELDS) {
-    const el = $(id);
-    if (el) el.disabled = !localEnabled;
-  }
-  for (const id of RELAY_FIELDS) {
-    const el = $(id);
-    if (el) el.disabled = !relayEnabled;
-  }
-  for (const id of OFFICIAL_KEY_FIELDS) {
-    const el = $(id);
-    if (el) el.disabled = !(officialEnabled || relayEnabled);
-  }
-  const chatbotModel = $("chatbot_model");
-  if (chatbotModel) chatbotModel.disabled = localEnabled;
+  syncTranslationModeUI(config);
 }
 
 function syncConfigForm(config) {
@@ -550,24 +738,54 @@ function renderTasks(tasks) {
   }
 }
 
+function compactProviderError(message) {
+  const text = String(message || "");
+  if (!text.trim()) return "";
+  if (text.includes("API Key") || text.includes("凭证") || text.includes("密钥")) {
+    return "未填写密钥";
+  }
+  if (text.includes("模型名") && text.includes("Base URL")) {
+    return "未填写模型名或 Base URL";
+  }
+  if (text.includes("Base URL")) {
+    return "未填写 Base URL";
+  }
+  if (text.includes("模型名")) {
+    return "未填写模型名";
+  }
+  if (text.includes("Ollama 模型名")) {
+    return "未填写模型名";
+  }
+  return text.replace(/^当前启用了翻译，但/, "").replace(/^启用了.*?时，/, "").replace(/。$/, "");
+}
+
+function providerStatusTone(provider, errors) {
+  if (!provider?.active) return "idle";
+  return errors.length ? "error" : "ok";
+}
+
 function renderProviders(providers) {
   const host = $("providerCards");
   host.innerHTML = "";
   for (const provider of providers || []) {
     const card = document.createElement("div");
     card.className = `provider-card ${provider.active ? "active" : ""}`;
-    const errorHtml = provider.validation_errors && provider.validation_errors.length
-      ? `<div class="provider-errors">${provider.validation_errors.map((item) => `• ${item}`).join("<br />")}</div>`
+    const errors = provider.active
+      ? [...new Set((provider.validation_errors || []).map(compactProviderError).filter(Boolean))]
+      : [];
+    const errorHtml = errors.length
+      ? `<div class="provider-errors">${errors.join("<br />")}</div>`
       : "";
+    const tone = providerStatusTone(provider, errors);
     card.innerHTML = `
       <div class="provider-card-header">
         <div>
           <div class="provider-name">${provider.label}</div>
-          <div class="provider-meta">${provider.summary}</div>
         </div>
-        <div class="status-chip ${provider.active ? "status-live" : "status-idle"}">${provider.active ? "生效" : "未启用"}</div>
+        <div class="provider-state ${tone}" title="${provider.active ? (errors.length ? "当前模式不可用" : "当前模式可用") : "未选中"}">
+          <span class="provider-state-dot"></span>
+        </div>
       </div>
-      <div class="provider-meta">模块：${provider.module_file}<br />预计：${provider.estimated_duration}</div>
       ${errorHtml}
     `;
     host.appendChild(card);
@@ -575,16 +793,9 @@ function renderProviders(providers) {
 
   const active = (providers || []).find((item) => item.active) || providers?.[0];
   if (active) {
-    const lines = [];
-    if (active.replan_text) {
-      $("replanText").textContent = active.replan_text;
-      return;
-    }
-    lines.push(`当前模块：${active.label}`);
-    lines.push(`模块文件：${active.module_file}`);
-    lines.push(`预计时长：${active.estimated_duration}`);
+    const lines = [`当前：${active.label}`];
     (active.replan_steps || []).forEach((step, index) => {
-      lines.push(`${index + 1}. ${step.step}（${step.duration_label}）`);
+      lines.push(`${index + 1}. ${step.step}`);
     });
     $("replanText").textContent = lines.join("\n");
   }
@@ -598,6 +809,10 @@ function renderJobs(jobs) {
   for (const job of sorted) {
     const card = document.createElement("div");
     const active = state.activeJobId === job.id;
+    const isTerminal = TERMINAL_JOB_STATUSES.has(job.status);
+    const cancelOrDeleteButton = isTerminal
+      ? `<button class="ghost-btn danger" data-action="delete-job" data-job="${job.id}">删除</button>`
+      : `<button class="ghost-btn danger" data-action="cancel-job" data-job="${job.id}">取消</button>`;
     card.className = `job-card ${active ? "active" : ""}`;
     card.innerHTML = `
       <div class="job-title">
@@ -613,7 +828,7 @@ function renderJobs(jobs) {
       <div class="hero-actions job-card-actions">
         <button class="ghost-btn" data-action="focus-job" data-job="${job.id}">查看</button>
         <button class="ghost-btn" data-action="retry-job" data-job="${job.id}" ${["failed", "cancelled"].includes(job.status) ? "" : "disabled"}>重试</button>
-        <button class="ghost-btn danger" data-action="cancel-job" data-job="${job.id}" ${["completed", "failed", "cancelled"].includes(job.status) ? "disabled" : ""}>取消</button>
+        ${cancelOrDeleteButton}
       </div>
     `;
     host.appendChild(card);
@@ -663,7 +878,7 @@ function applyProviders(providers) {
 function applyJobs(jobs) {
   state.jobs = jobs || [];
   renderJobs(state.jobs);
-  const active = state.jobs.find((job) => !["completed", "failed", "cancelled"].includes(job.status)) || state.jobs[0];
+  const active = state.jobs.find((job) => !TERMINAL_JOB_STATUSES.has(job.status)) || state.jobs[0];
   if (active?.confirmation_state && active.status === "waiting_confirmation") {
     showConfirmation(active.confirmation_state);
   }
@@ -676,7 +891,7 @@ async function applyDashboardSnapshot(snapshot) {
   applyScan(snapshot.scan || null);
   applyProviders(snapshot.providers || []);
   const active = applyJobs(snapshot.jobs || []);
-  if (active && active.id && state.activeJobId !== active.id && !["completed", "failed", "cancelled"].includes(active.status)) {
+  if (active && active.id && state.activeJobId !== active.id && !TERMINAL_JOB_STATUSES.has(active.status)) {
     openJobStream(active.id);
   }
   if (state.scan?.root_dir) {
@@ -734,7 +949,7 @@ function connectDashboardEvents() {
   const handleJobsChanged = async (event) => {
     const payload = parseEventPayload(event).payload || {};
     const active = applyJobs(payload.jobs || state.jobs);
-    if (active && active.id && state.activeJobId !== active.id && !["completed", "failed", "cancelled"].includes(active.status)) {
+    if (active && active.id && state.activeJobId !== active.id && !TERMINAL_JOB_STATUSES.has(active.status)) {
       openJobStream(active.id);
     }
     if (payload.outputs_changed && state.scan?.root_dir) {
@@ -840,6 +1055,31 @@ function openJobStream(jobId) {
   };
 }
 
+async function viewJob(jobId) {
+  if (!jobId) return;
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+  const job = await refreshJob(jobId);
+  state.activeJobId = jobId;
+  renderJobs(state.jobs);
+
+  if (job && !TERMINAL_JOB_STATUSES.has(job.status)) {
+    openJobStream(jobId);
+    appendLog(`正在查看任务：${jobId}`);
+    return;
+  }
+
+  try {
+    const text = await fetchText(`/api/files/logs/${jobId}`);
+    resetLog(text || `任务 ${jobId} 没有日志内容。`);
+  } catch {
+    const excerpt = Array.isArray(job?.log_excerpt) ? job.log_excerpt.join("\n") : "";
+    resetLog(excerpt || `任务 ${jobId} 没有可读取的日志。`);
+  }
+}
+
 async function refreshJob(jobId) {
   const job = await fetchJson(`/api/jobs/${jobId}`);
   const index = state.jobs.findIndex((item) => item.id === jobId);
@@ -852,6 +1092,7 @@ async function refreshJob(jobId) {
   if (job.confirmation_state && job.status === "waiting_confirmation") {
     showConfirmation(job.confirmation_state);
   }
+  return job;
 }
 
 function renderConfirmation(stateObj) {
@@ -951,6 +1192,22 @@ async function cancelJob(jobId) {
   toast("已取消", "ok");
 }
 
+async function deleteJob(jobId) {
+  const job = state.jobs.find((item) => item.id === jobId);
+  if (job && !TERMINAL_JOB_STATUSES.has(job.status)) {
+    toast("运行中的任务请先取消，再删除", "error");
+    return;
+  }
+  await fetchJson(`/api/jobs/${jobId}`, { method: "DELETE" });
+  state.jobs = state.jobs.filter((item) => item.id !== jobId);
+  if (state.activeJobId === jobId) {
+    state.activeJobId = null;
+    resetLog("任务记录已删除。\n");
+  }
+  renderJobs(state.jobs);
+  toast("任务记录已删除", "ok");
+}
+
 async function retryJob(jobId) {
   const data = await fetchJson(`/api/jobs/${jobId}/retry`, { method: "POST", body: JSON.stringify({}) });
   const job = data.job;
@@ -1022,13 +1279,16 @@ function bindEvents() {
     const jobId = button.getAttribute("data-job");
     const action = button.getAttribute("data-action");
     if (action === "focus-job") {
-      openJobStream(jobId);
-      await refreshJob(jobId);
+      await viewJob(jobId);
       return;
     }
     if (action === "cancel-job") {
       await cancelJob(jobId);
       await refreshJob(jobId);
+      return;
+    }
+    if (action === "delete-job") {
+      await deleteJob(jobId);
       return;
     }
     if (action === "retry-job") {
@@ -1043,18 +1303,61 @@ function bindEvents() {
     });
   });
 
+  const translationBackendEl = $("translation_backend");
+  if (translationBackendEl) {
+    translationBackendEl.addEventListener("input", async () => {
+      syncTranslationModeUI(collectConfig());
+      scheduleAutoSave();
+      try {
+        await refreshProviderPreview();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+    translationBackendEl.addEventListener("change", async () => {
+      syncTranslationModeUI(collectConfig());
+      scheduleAutoSave();
+      try {
+        await refreshProviderPreview();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  }
+
+  const officialProviderEl = $("official_provider");
+  if (officialProviderEl) {
+    const handleOfficialProviderChange = () => {
+      const previousField = state.officialProviderField || OFFICIAL_PROVIDER_OPTIONS[0].value;
+      commitOfficialProviderControls(previousField);
+      state.officialProviderField = officialProviderEl.value;
+      localStorage.setItem("openlrc.officialProviderField", state.officialProviderField);
+      syncOfficialProviderControls({
+        ...state.config,
+        [state.officialProviderField]: $(state.officialProviderField)?.value || "",
+      });
+      scheduleAutoSave();
+    };
+    officialProviderEl.addEventListener("input", handleOfficialProviderChange);
+    officialProviderEl.addEventListener("change", handleOfficialProviderChange);
+  }
+
+  const officialApiKeyEl = $("official_api_key");
+  if (officialApiKeyEl) {
+    const handleOfficialKeyChange = () => {
+      commitOfficialProviderControls();
+      scheduleAutoSave();
+    };
+    officialApiKeyEl.addEventListener("input", handleOfficialKeyChange);
+    officialApiKeyEl.addEventListener("change", handleOfficialKeyChange);
+  }
+
   for (const id of LIST_FIELD_IDS) {
+    if (id === "translation_backend") continue;
     const el = $(id);
     if (!el) continue;
     const onConfigEdit = async () => {
       scheduleAutoSave();
-      if (id === "translation_backend" || id === "endpoint_mode" || id === "relay_provider") {
-        try {
-          await refreshProviderPreview();
-        } catch (error) {
-          toast(error.message, "error");
-        }
-      }
     };
     el.addEventListener("input", onConfigEdit);
     el.addEventListener("change", onConfigEdit);
@@ -1064,9 +1367,11 @@ function bindEvents() {
 async function main() {
   initStaticSelects();
   initShellState();
+  enhanceDrawerSelects();
   bindShellEvents();
   bindRootDropZone();
   bindEvents();
+  syncCustomSelects();
   resetLog("OpenLRC Web 已启动。\n");
   setServerStatus("等待初始快照", false);
   try {

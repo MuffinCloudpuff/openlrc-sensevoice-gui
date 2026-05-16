@@ -148,6 +148,21 @@ class JobManager:
         self.record_event(job_id, "status", {"status": "cancel_requested"})
         return self.get_job(job_id)  # type: ignore[return-value]
 
+    def delete_job(self, job_id: str) -> JobRecord:
+        with self._lock:
+            record = self._records.get(job_id)
+            if record is None:
+                raise KeyError(job_id)
+            if record.status not in TERMINAL_STATUSES:
+                raise ValueError("running job cannot be deleted")
+            deleted = self._records.pop(job_id)
+            self._subscribers.pop(job_id, None)
+            self._cancel_flags.pop(job_id, None)
+            path = self._record_path(job_id)
+            if path.exists():
+                path.unlink()
+        return deleted
+
     def record_event(self, job_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             record = self._records[job_id]
