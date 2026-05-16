@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from openlrc.gui_qt.models import AppConfig
+from openlrc.gui_qt.models import AppConfig, ScanResult
 from openlrc.gui_common import native_dialogs
 from openlrc.gui_web.app import app
+from openlrc.gui_web.core.directory_watch import DirectoryWatchService, _directory_signature, _is_relevant_watch_path
 from openlrc.gui_web.core.event_broker import EventBroker
 from openlrc.gui_web.core.job_manager import JobManager
 from openlrc.gui_web.services.file_service import list_output_files
@@ -116,6 +118,76 @@ class TestGuiWebServices(unittest.TestCase):
 
         self.assertEqual(first.get_nowait()["type"], "scan_changed")
         self.assertEqual(second.get_nowait()["payload"], {"audio_count": 2})
+
+    def test_scan_endpoint_repeated_same_root_still_scans_and_watches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scan_result = ScanResult(root_dir=root)
+            with (
+                patch("openlrc.gui_web.app.scan_directory_for_web", return_value=scan_result) as scan_mock,
+                patch("openlrc.gui_web.app.directory_watcher") as watcher_mock,
+            ):
+                watcher_mock.snapshot.return_value = {"root_dir": str(root), "mode": "mock"}
+                client = TestClient(app)
+                payload = AppConfig(scan_root_dir=str(root)).to_dict()
+
+                first = client.post("/api/scan", json=payload)
+                second = client.post("/api/scan", json=payload)
+
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(second.status_code, 200)
+            self.assertEqual(scan_mock.call_count, 2)
+            self.assertEqual(watcher_mock.set_root.call_count, 2)
+
+    def test_directory_watch_service_debounces_change_events(self):
+        events = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = DirectoryWatchService(
+                lambda changed_root, reason: events.append((changed_root, reason)),
+                debounce_seconds=0.05,
+                poll_interval_seconds=60,
+                prefer_watchdog=False,
+            )
+            try:
+                service.set_root(root)
+                service.notify_change("created")
+                service.notify_change("modified")
+                time.sleep(0.2)
+            finally:
+                service.stop()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], (root.resolve(), "modified"))
+
+    def test_directory_watch_ignores_runtime_artifacts_for_scan_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_audio = root / "song.mp3"
+            source_audio.write_bytes(b"audio")
+            preprocessed_audio = root / "preprocessed" / "song_preprocessed.wav"
+            preprocessed_audio.parent.mkdir()
+            preprocessed_audio.write_bytes(b"generated")
+            cache_file = root / ".openlrc_cache" / "song" / "meta.json"
+            cache_file.parent.mkdir(parents=True)
+            cache_file.write_text("{}", encoding="utf-8")
+            output_file = root / "song.lrc"
+            output_file.write_text("lyrics", encoding="utf-8")
+
+            signature = _directory_signature(root)
+
+            self.assertEqual(len(signature), 1)
+            self.assertIn("song.mp3", signature[0][0])
+            self.assertFalse(
+                _is_relevant_watch_path(root, preprocessed_audio, event_type="modified", is_directory=False)
+            )
+            self.assertFalse(_is_relevant_watch_path(root, cache_file, event_type="modified", is_directory=False))
+            self.assertFalse(_is_relevant_watch_path(root, output_file, event_type="modified", is_directory=False))
+            self.assertFalse(_is_relevant_watch_path(root, root, event_type="created", is_directory=True))
+            self.assertFalse(_is_relevant_watch_path(root, "", event_type="created", is_directory=True))
+            self.assertTrue(_is_relevant_watch_path(root, source_audio, event_type="modified", is_directory=False))
+            self.assertTrue(_is_relevant_watch_path(root, root / "new_album", event_type="created", is_directory=True))
 
     def test_bootstrap_endpoint_is_removed(self):
         response = TestClient(app).get("/api/bootstrap")

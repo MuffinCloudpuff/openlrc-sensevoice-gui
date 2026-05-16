@@ -451,6 +451,7 @@ function syncConfigForm(config) {
 function setRootDir(pathText, source = "manual", options = {}) {
   const autoScan = options.autoScan !== false;
   const autoSave = options.autoSave !== false;
+  const forceScan = options.forceScan === true || ["dialog", "drop", "paste"].includes(source);
   const normalized = String(pathText || "").trim().replace(/^file:\/\/\/?/i, "").replace(/\//g, "\\");
   const input = $("scan_root_dir");
   if (!input) return;
@@ -463,7 +464,7 @@ function setRootDir(pathText, source = "manual", options = {}) {
     scheduleAutoSave();
   }
   if (autoScan) {
-    scheduleAutoScan();
+    scheduleAutoScan({ force: forceScan });
   }
 }
 
@@ -498,13 +499,14 @@ async function chooseRootFolder() {
   }
 }
 
-function scheduleAutoScan() {
+function scheduleAutoScan(options = {}) {
+  const force = options.force === true;
   if (state.autoScanTimer) {
     clearTimeout(state.autoScanTimer);
   }
   state.autoScanTimer = setTimeout(() => {
     state.autoScanTimer = null;
-    void autoScanRoot();
+    void autoScanRoot({ force });
   }, 450);
 }
 

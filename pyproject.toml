@@ -61,6 +61,7 @@ local-mt = [
 web = [
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.32,<1",
+    "watchdog>=6.0,<7",
 ]
 
 [project.urls]

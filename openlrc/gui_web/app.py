@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import json
+import logging
 import queue
+import threading
 import time
 from pathlib import Path
 
@@ -12,6 +15,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..gui_qt.models import AppConfig
+from .core.directory_watch import DirectoryWatchService
 from .core.event_broker import EventBroker
 from .core.job_manager import JobManager
 from .services.config_service import load_web_config, save_web_config, serialize_config
@@ -24,11 +28,13 @@ from .services.scan_service import build_scan_payload, scan_directory_for_web
 app = FastAPI(title="OpenLRC Web", version="1.0.0")
 job_manager = JobManager()
 dashboard_events = EventBroker()
+logger = logging.getLogger(__name__)
 frontend_dir = Path(__file__).resolve().parent / "frontend"
 if frontend_dir.exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_dir / "static")), name="assets")
 
 _LAST_SCAN: dict | None = None
+_SCAN_LOCK = threading.RLock()
 
 
 def _empty_scan() -> dict:
@@ -58,6 +64,28 @@ def _publish_dashboard_event(event_type: str, payload: dict | None = None) -> No
     dashboard_events.publish(event_type, payload or {})
 
 
+def _scan_with_config(config: AppConfig) -> dict:
+    scan_result = scan_directory_for_web(config.scan_root_dir)
+    data = build_scan_payload(config, scan_result)
+    global _LAST_SCAN
+    with _SCAN_LOCK:
+        _LAST_SCAN = data
+    return data
+
+
+def _publish_scan_for_root(root_dir: str | Path, reason: str) -> None:
+    with _SCAN_LOCK:
+        config = load_web_config()
+        config.scan_root_dir = str(root_dir)
+        data = _scan_with_config(config)
+    _publish_dashboard_event("scan_changed", {"scan": data, "reason": reason, "watch": directory_watcher.snapshot()})
+
+
+def _on_watched_directory_changed(root_dir: Path, reason: str) -> None:
+    logger.info("Watched directory changed: %s (%s)", root_dir, reason)
+    _publish_scan_for_root(root_dir, reason)
+
+
 def _publish_job_event(event: dict) -> None:
     payload = {
         "event": event,
@@ -70,6 +98,8 @@ def _publish_job_event(event: dict) -> None:
 
 
 job_manager.set_event_listener(_publish_job_event)
+directory_watcher = DirectoryWatchService(_on_watched_directory_changed)
+atexit.register(directory_watcher.stop)
 
 
 def _sse(event_type: str, payload: dict) -> str:
@@ -105,6 +135,10 @@ def api_get_config() -> dict:
 def api_save_config(payload: dict) -> dict:
     config = save_web_config(payload)
     data = serialize_config(config)
+    if config.scan_root_dir.strip():
+        directory_watcher.set_root(config.scan_root_dir)
+    else:
+        directory_watcher.stop()
     _publish_dashboard_event("config_changed", {"config": data, "providers": list_provider_payloads(config)})
     return data
 
@@ -124,11 +158,10 @@ def api_last_scan() -> dict:
 @app.post("/api/scan")
 def api_scan(payload: dict) -> dict:
     config = _config_from_payload(payload)
-    scan_result = scan_directory_for_web(config.scan_root_dir)
-    data = build_scan_payload(config, scan_result)
-    global _LAST_SCAN
-    _LAST_SCAN = data
-    _publish_dashboard_event("scan_changed", {"scan": data})
+    data = _scan_with_config(config)
+    if config.scan_root_dir.strip():
+        directory_watcher.set_root(config.scan_root_dir)
+    _publish_dashboard_event("scan_changed", {"scan": data, "reason": "manual", "watch": directory_watcher.snapshot()})
     return data
 
 
