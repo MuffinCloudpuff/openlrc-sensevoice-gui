@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from functools import lru_cache
@@ -9,7 +8,7 @@ from pathlib import Path
 import requests
 from transformers import AutoTokenizer
 
-from ...models import AppConfig, PROJECT_ROOT
+from ...models import PROJECT_ROOT, AppConfig
 from ..prompts.local_hymt import build_local_batch_translation_prompt, build_local_translation_prompt
 
 OLLAMA_EXE_CANDIDATES = [
@@ -192,6 +191,8 @@ def translate_lines_with_hymt(
     tokenizer_dir = config.local_mt_tokenizer_dir.strip() or detect_local_hymt_tokenizer_dir()
     if not tokenizer_dir:
         raise RuntimeError("未找到 HY-MT tokenizer 目录，无法构造稳定 prompt。")
+    if not Path(tokenizer_dir).expanduser().is_dir():
+        raise RuntimeError(f"HY-MT tokenizer 目录不存在：{tokenizer_dir}")
 
     batch_size = max(1, int(getattr(config, "local_mt_batch_size", 1) or 1))
     if batch_size == 1:

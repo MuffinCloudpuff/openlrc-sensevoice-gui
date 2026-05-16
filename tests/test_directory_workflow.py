@@ -29,6 +29,19 @@ class TestDirectoryWorkflow(unittest.TestCase):
 
             self.assertEqual(cache_dir, root / CACHE_DIR_NAME / "sub" / "song")
 
+    def test_cache_dir_sanitizes_directory_names_that_end_with_space(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "sub" / "song .mp3"
+            audio.parent.mkdir()
+            audio.write_bytes(b"audio")
+
+            cache_dir = cache_dir_for_audio(root, audio)
+
+            self.assertEqual(cache_dir.parent, root / CACHE_DIR_NAME / "sub")
+            self.assertFalse(cache_dir.name.endswith(" "))
+            self.assertIn("__", cache_dir.name)
+
     def test_scan_directory_ignores_cache_dir_and_reports_cache_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -43,6 +56,40 @@ class TestDirectoryWorkflow(unittest.TestCase):
             self.assertEqual(len(tasks), 1)
             self.assertEqual(tasks[0].relative_path, Path("a.mp3"))
             self.assertFalse(tasks[0].cache_valid)
+
+    def test_scan_directory_ignores_preprocessed_audio_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "song.mp3"
+            generated_dir = root / "preprocessed"
+            generated_audio = generated_dir / "song_preprocessed.wav"
+            normalized_audio = generated_dir / "song_ln.wav"
+
+            source.write_bytes(b"audio")
+            generated_dir.mkdir()
+            generated_audio.write_bytes(b"generated")
+            normalized_audio.write_bytes(b"generated")
+
+            tasks = scan_directory(root)
+
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0].relative_path, Path("song.mp3"))
+
+    def test_scan_directory_ignores_wav_extracted_from_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            extracted_audio = root / "clip.wav"
+            original_video = root / "clip.mp4"
+            normal_audio = root / "voice.wav"
+
+            extracted_audio.write_bytes(b"generated")
+            original_video.write_bytes(b"video")
+            normal_audio.write_bytes(b"real-audio")
+
+            tasks = scan_directory(root)
+
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0].relative_path, Path("voice.wav"))
 
     def test_store_asr_cache_writes_meta_and_validates_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:

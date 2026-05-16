@@ -8,6 +8,8 @@ def validate_before_processing(config: AppConfig, scan_result: ScanResult) -> li
     errors: list[str] = []
     if not scan_result.root_dir or not scan_result.tasks:
         errors.append("请先选择一个有效根文件夹，并确保其中至少包含一个可处理的音频文件。")
+    if not config.skip_trans and not config.target_lang.strip():
+        errors.append("启用翻译时必须填写目标语言，例如 zh-cn。")
 
     provider = get_provider_by_label(config.translation_backend)
     errors.extend(provider.validate(config))

@@ -7,16 +7,20 @@ from pathlib import Path
 from openlrc.gui_qt.config_store import load_config, save_config
 from openlrc.gui_qt.models import AppConfig
 from openlrc.gui_qt.services.orchestrator import build_summary_items, scan_root_directory
+from openlrc.gui_qt.services.runtime import close_file_logger, ensure_file_logger
 from openlrc.gui_qt.services.validation import validate_before_processing
 from openlrc.gui_qt.translation.replan import build_replan_text
+from openlrc.logger import logger
 
 
 class TestGuiQtServices(unittest.TestCase):
     def test_config_round_trip_preserves_core_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "media"
+            root.mkdir()
             config_path = Path(tmp) / "gui.json"
             config = AppConfig(
-                scan_root_dir="D:/demo",
+                scan_root_dir=str(root),
                 translation_backend="中转 API",
                 endpoint_mode="中转平台",
                 relay_model_name="gpt-5.4",
@@ -25,10 +29,34 @@ class TestGuiQtServices(unittest.TestCase):
             save_config(config, config_path)
             loaded = load_config(config_path)
 
-            self.assertEqual(loaded.scan_root_dir, "D:/demo")
+            self.assertEqual(loaded.scan_root_dir, str(root))
             self.assertEqual(loaded.translation_backend, "中转 API")
             self.assertEqual(loaded.endpoint_mode, "中转平台")
             self.assertEqual(loaded.relay_model_name, "gpt-5.4")
+
+    def test_config_load_drops_stale_scan_root_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "gui.json"
+            config = AppConfig(scan_root_dir=str(Path(tmp) / "missing"), target_lang="")
+
+            save_config(config, config_path)
+            loaded = load_config(config_path)
+
+            self.assertEqual(loaded.scan_root_dir, "")
+            self.assertEqual(loaded.target_lang, "zh-cn")
+
+    def test_file_logger_can_be_closed_on_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "openlrc_run.log"
+
+            handler = ensure_file_logger(log_path)
+            self.assertIn(handler, logger.handlers)
+            logger.info("file logger close smoke")
+            close_file_logger(log_path)
+
+            self.assertNotIn(handler, logger.handlers)
+            log_path.unlink()
+            self.assertFalse(log_path.exists())
 
     def test_scan_root_directory_returns_tasks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,6 +85,23 @@ class TestGuiQtServices(unittest.TestCase):
             errors = validate_before_processing(config, scan_result)
 
             self.assertTrue(any("API Key" in message for message in errors))
+
+    def test_validate_before_processing_requires_target_lang_when_translating(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "song.mp3"
+            audio.write_bytes(b"audio")
+            scan_result = scan_root_directory(str(root))
+            config = AppConfig(
+                scan_root_dir=str(root),
+                translation_backend="本地 HY-MT",
+                target_lang="",
+                skip_trans=False,
+            )
+
+            errors = validate_before_processing(config, scan_result)
+
+            self.assertTrue(any("目标语言" in message for message in errors))
 
     def test_inactive_modes_do_not_participate_in_validation(self):
         with tempfile.TemporaryDirectory() as tmp:

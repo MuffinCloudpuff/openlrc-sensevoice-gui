@@ -58,6 +58,10 @@ desktop = [
 local-mt = [
     "transformers>=4.56.0,<5",
 ]
+web = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+]
 
 [project.urls]
 Homepage = "https://github.com/zh-plus/openlrc"
@@ -68,6 +72,7 @@ Homepage = "https://github.com/zh-plus/openlrc"
 [project.scripts]
 openlrc = "openlrc.cli:main"
 openlrc-desktop = "openlrc.gui_qt.app:main"
+openlrc-web = "openlrc.gui_web.app:main"
 
 [dependency-groups]
 dev = ["pyright>=1.1", "ruff>=0.11"]

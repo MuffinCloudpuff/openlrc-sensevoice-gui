@@ -19,16 +19,31 @@ from openlrc.utils import get_messages_token_number, get_text_token_number
 from ..models import AppConfig
 
 
-def ensure_file_logger(log_path: Path) -> None:
+def ensure_file_logger(log_path: Path) -> logging.FileHandler:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     for handler in logger.handlers:
         if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename).resolve() == log_path.resolve():
-            return
+            return handler
 
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setLevel(logger.level)
     file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)-8s [%(threadName)s] %(message)s"))
     logger.addHandler(file_handler)
+    return file_handler
+
+
+def close_file_logger(log_path: Path | None) -> None:
+    if log_path is None:
+        return
+
+    target = log_path.resolve()
+    for handler in list(logger.handlers):
+        if not isinstance(handler, logging.FileHandler):
+            continue
+        if Path(handler.baseFilename).resolve() != target:
+            continue
+        logger.removeHandler(handler)
+        handler.close()
 
 
 def apply_runtime_api_keys(config: AppConfig) -> None:

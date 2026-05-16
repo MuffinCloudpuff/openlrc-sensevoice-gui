@@ -64,6 +64,22 @@ def detect_local_hymt_gguf_path() -> str:
     return ""
 
 
+def _existing_dir_or_detect(path_text: str, detector) -> str:
+    path = Path(path_text).expanduser() if path_text else None
+    if path and path.exists() and path.is_dir():
+        return str(path)
+    detected = detector()
+    return detected or str(path_text or "")
+
+
+def _existing_file_or_detect(path_text: str, detector) -> str:
+    path = Path(path_text).expanduser() if path_text else None
+    if path and path.exists() and path.is_file():
+        return str(path)
+    detected = detector()
+    return detected or str(path_text or "")
+
+
 def default_local_mt_model_name() -> str:
     return "hy-mt-q4km"
 
@@ -117,7 +133,7 @@ class AppConfig:
     bilingual_sub: bool = False
 
     @classmethod
-    def from_dict(cls, payload: dict) -> "AppConfig":
+    def from_dict(cls, payload: dict) -> AppConfig:
         config = cls()
         for field_name in cls.__dataclass_fields__:
             if field_name in payload:
@@ -138,10 +154,10 @@ class AppConfig:
             config.local_mt_model_id = default_local_mt_model_name()
         if not config.local_mt_host:
             config.local_mt_host = default_local_mt_host()
-        if not config.local_mt_tokenizer_dir:
-            config.local_mt_tokenizer_dir = detect_local_hymt_tokenizer_dir()
-        if not config.local_mt_gguf_path:
-            config.local_mt_gguf_path = detect_local_hymt_gguf_path()
+        config.local_mt_tokenizer_dir = _existing_dir_or_detect(
+            config.local_mt_tokenizer_dir, detect_local_hymt_tokenizer_dir
+        )
+        config.local_mt_gguf_path = _existing_file_or_detect(config.local_mt_gguf_path, detect_local_hymt_gguf_path)
         return config
 
     def to_dict(self) -> dict:

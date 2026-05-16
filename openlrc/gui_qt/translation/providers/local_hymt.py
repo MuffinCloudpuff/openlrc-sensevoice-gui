@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...models import AppConfig, ReplanStep
 from .base import TranslationProvider
 from .local_hymt_runtime import detect_ollama_exe, ensure_ollama_available
@@ -21,8 +23,12 @@ class LocalHYMTProvider(TranslationProvider):
             errors.append("本地 HY-MT 模式下必须填写 Ollama 地址。")
         if not config.local_mt_gguf_path.strip():
             errors.append("本地 HY-MT 模式下必须填写 GGUF 文件路径。")
+        elif not Path(config.local_mt_gguf_path).expanduser().is_file():
+            errors.append(f"GGUF 文件不存在：{config.local_mt_gguf_path}")
         if not config.local_mt_tokenizer_dir.strip():
             errors.append("本地 HY-MT 模式下必须填写 tokenizer 目录。")
+        elif not Path(config.local_mt_tokenizer_dir).expanduser().is_dir():
+            errors.append(f"tokenizer 目录不存在：{config.local_mt_tokenizer_dir}")
         if not detect_ollama_exe():
             errors.append("未找到 Ollama 可执行文件。")
         else:

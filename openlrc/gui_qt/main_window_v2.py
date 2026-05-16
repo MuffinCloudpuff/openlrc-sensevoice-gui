@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMainWindow, QScrollArea, QSizePolicy, QWidget
 
@@ -11,7 +13,7 @@ from .widgets.v2_workspace import V2Workspace
 
 
 class MainWindowV2(QMainWindow):
-    def __init__(self):
+    def __init__(self, config_path: str | Path | None = None):
         super().__init__()
         self.setWindowTitle("OpenLRC Studio V2")
         self.resize(1280, 800)
@@ -49,7 +51,7 @@ class MainWindowV2(QMainWindow):
         self.anim_left.finished.connect(self._finalize_left_drawer)
         self.anim_right.finished.connect(self._finalize_right_drawer)
 
-        self.controller = V2Controller(self)
+        self.controller = V2Controller(self, Path(config_path) if config_path else None)
         self.controller.initialize()
 
     def _create_drawer_wrapper(self, inner_widget: QWidget, width: int, scrollable: bool) -> QFrame:
@@ -120,26 +122,6 @@ class MainWindowV2(QMainWindow):
         self._animate_drawer(self.right_wrapper, self.anim_right, self.right_drawer_width, self.is_right_drawer_open)
         self.workspace.btn_toggle_right.setText("隐藏配置" if self.is_right_drawer_open else "显示配置")
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self._sync_drawer_heights()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._sync_drawer_heights()
-
-    def _sync_drawer_heights(self) -> None:
-        target_height = self.central.height()
-        if target_height <= 0:
-            return
-        for wrapper in [self.left_wrapper, self.right_wrapper]:
-            wrapper.setMinimumHeight(target_height)
-            wrapper.setMaximumHeight(target_height)
-        if self.right_scroll is not None:
-            self.right_scroll.setMinimumHeight(target_height)
-            self.right_scroll.setMaximumHeight(target_height)
-            if self.right_scroll.widget():
-                self.right_scroll.widget().setMinimumHeight(target_height)
 
 
 if __name__ == "__main__":

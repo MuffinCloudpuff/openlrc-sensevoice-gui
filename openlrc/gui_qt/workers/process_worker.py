@@ -22,6 +22,7 @@ from ..services.runtime import (
     apply_runtime_api_keys,
     build_lrcer,
     build_translation_confirmation_state,
+    close_file_logger,
     ensure_file_logger,
     estimate_translation_fee,
     is_local_translation_backend,
@@ -90,6 +91,8 @@ class ProcessWorker(QObject):
             self.failed.emit(str(exc), traceback.format_exc())
         finally:
             logger.removeHandler(handler)
+            handler.close()
+            close_file_logger(self.log_path)
             self.done.emit()
 
     def _emit_progress(self, value: float, text: str) -> None:

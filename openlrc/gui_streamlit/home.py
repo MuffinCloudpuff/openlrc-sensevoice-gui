@@ -35,6 +35,7 @@ from openlrc.directory_workflow import (
     store_translated_cache,
     store_translation_estimate_cache,
 )
+from openlrc.gui_common.native_dialogs import choose_folder as choose_native_folder
 from openlrc.gui_streamlit.utils import detect_relay_models, get_asr_options, get_preprocess_options, get_vad_options
 from openlrc.logger import logger
 from openlrc.models import Models
@@ -62,17 +63,14 @@ def save_gui_config(config: dict) -> None:
 
 def choose_folder_dialog(initial_dir: str = "") -> str:
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except Exception:
+        result = choose_native_folder(initial_dir)
+    except Exception as exc:
+        st.error(f"打开本机文件夹选择器失败：{exc}")
         return ""
 
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    selected = filedialog.askdirectory(initialdir=initial_dir or str(Path.home()))
-    root.destroy()
-    return selected or ""
+    if not result.get("selected"):
+        return ""
+    return str(result.get("path") or "")
 
 
 def apply_pending_scan_root_dir() -> None:

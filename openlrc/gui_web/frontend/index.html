@@ -1,0 +1,304 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenLRC Web</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+Mono:wght@400;500&family=Playfair+Display:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="nav-rail" id="navRail">
+        <div class="brand">
+          <div class="brand-mark">
+            <span class="material-symbols-outlined">subtitles</span>
+          </div>
+          <div class="brand-copy">
+            <div class="brand-title">OpenLRC</div>
+            <div class="brand-subtitle">Control Center</div>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button data-jump="#entryPanel" class="nav-link active">
+            <span class="material-symbols-outlined">home_app_logo</span>
+            <span>入口</span>
+          </button>
+          <button data-jump="#workPanel" class="nav-link">
+            <span class="material-symbols-outlined">table_rows</span>
+            <span>任务列表</span>
+          </button>
+          <button data-jump="#providerPanel" class="nav-link">
+            <span class="material-symbols-outlined">hub</span>
+            <span>Provider</span>
+          </button>
+          <button data-jump="#logPanel" class="nav-link">
+            <span class="material-symbols-outlined">article</span>
+            <span>日志</span>
+          </button>
+          <button data-jump="#outputPanel" class="nav-link">
+            <span class="material-symbols-outlined">folder_open</span>
+            <span>输出</span>
+          </button>
+        </nav>
+
+        <div class="nav-footer">
+          <div class="muted">本机任务控制台</div>
+          <div id="serverStatus" class="status-chip status-idle">待连接</div>
+        </div>
+      </aside>
+
+      <div id="navResizeHandle" class="nav-resize-handle" aria-hidden="true"></div>
+
+      <main class="workspace">
+        <header class="stage-header">
+          <div class="stage-title">
+            <h2>字幕翻译</h2>
+          </div>
+          <div class="stage-actions">
+            <button id="toggleSettingsBtn" class="primary-btn">
+              <span class="material-symbols-outlined">tune</span>
+              设置
+            </button>
+          </div>
+        </header>
+
+        <section id="entryPanel" class="stage-view active">
+          <div class="entry-layout">
+            <div class="entry-stack">
+              <section class="entry-root-card">
+                <div id="rootDropZone" class="root-dropzone" tabindex="0" role="button" aria-label="选择或拖入根目录">
+                  <div class="root-folder-ghost" aria-hidden="true">
+                    <span class="material-symbols-outlined">folder_open</span>
+                  </div>
+                  <div class="root-dropzone-content">
+                    <div class="root-dropzone-action">点击选择路径</div>
+                    <input id="scan_root_dir" class="root-path-display" type="text" placeholder="" readonly tabindex="-1" aria-label="当前根目录" />
+                  </div>
+                </div>
+              </section>
+
+              <section class="control-card entry-actions-card">
+                <div class="section-title">快捷操作</div>
+                <div class="panel-desc entry-actions-desc">目录变更后自动扫描，配置变更后自动保存，页面状态由后端事件同步。</div>
+                <div class="action-grid">
+                  <button id="openOutputRootBtn" class="ghost-btn">
+                    <span class="material-symbols-outlined">folder_open</span>
+                    打开目录
+                  </button>
+                  <button id="clearCacheBtn" class="ghost-btn danger">
+                    <span class="material-symbols-outlined">delete_sweep</span>
+                    清缓存
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <section class="control-card">
+              <div class="section-title">扫描概览</div>
+              <div id="summaryGrid" class="summary-grid"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="workPanel" class="stage-view">
+          <section class="work-start-card">
+            <div>
+              <div class="panel-title">准备开始任务</div>
+              <div class="panel-desc">确认下方任务列表无误后，启动 ASR、翻译和导出流程。</div>
+            </div>
+            <button id="startJobBtn" class="accent-btn start-job-primary">
+              <span class="material-symbols-outlined">play_arrow</span>
+              开始任务
+            </button>
+          </section>
+
+          <section class="work-table-card">
+            <div class="view-head">
+              <div>
+                <div class="panel-title">任务表</div>
+                <div class="panel-desc">扫描路径、缓存状态、ASR 结果与字幕输出位置。</div>
+              </div>
+            </div>
+            <div class="table-shell">
+              <table class="task-table">
+                <thead>
+                  <tr>
+                    <th>文件</th>
+                    <th>状态</th>
+                    <th>缓存</th>
+                    <th>翻译估算</th>
+                    <th>输出</th>
+                  </tr>
+                </thead>
+                <tbody id="taskTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="providerPanel" class="stage-view">
+          <div class="view-head">
+            <div>
+              <div class="panel-title">Provider 与 replan</div>
+              <div class="panel-desc">只启用当前选中的翻译模块，其他模块不参与执行。</div>
+            </div>
+            <button id="testLocalMtBtn" class="ghost-btn">
+              <span class="material-symbols-outlined">science</span>
+              测试本地 HY-MT
+            </button>
+          </div>
+          <div class="provider-workspace">
+            <div id="providerCards" class="provider-grid"></div>
+            <div class="replan-box">
+              <div class="replan-title">当前模块执行链路</div>
+              <pre id="replanText" class="replan-text"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="logPanel" class="stage-view">
+          <div class="view-head">
+            <div>
+              <div class="panel-title">实时日志</div>
+              <div class="panel-desc">SSE 推送的进度、阶段、错误和确认信息。</div>
+            </div>
+            <button id="copyLogBtn" class="ghost-btn">
+              <span class="material-symbols-outlined">content_copy</span>
+              复制日志
+            </button>
+          </div>
+          <div id="jobStrip" class="job-strip"></div>
+          <pre id="logConsole" class="log-console"></pre>
+        </section>
+
+        <section id="outputPanel" class="stage-view">
+          <div class="view-head">
+            <div>
+              <div class="panel-title">输出文件</div>
+              <div class="panel-desc">查看字幕、JSON、日志和缓存导出的结果。</div>
+            </div>
+          </div>
+          <div id="outputList" class="output-list"></div>
+        </section>
+      </main>
+
+      <aside id="settingsDrawer" class="settings-drawer">
+        <div class="drawer-head">
+          <div>
+            <div class="panel-title">设置抽屉</div>
+            <div class="panel-desc">数据驱动表单，仅启用当前模式对应字段。</div>
+          </div>
+          <button id="closeSettingsBtn" class="round-btn" title="关闭设置">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-title">翻译模式</div>
+          <select id="translation_backend"></select>
+          <select id="endpoint_mode"></select>
+          <select id="relay_provider"></select>
+          <input id="chatbot_model" type="text" placeholder="gpt-4.1-nano" />
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-title">任务参数</div>
+          <div class="compact-grid">
+            <label class="field">
+              <span>目标语言</span>
+              <input id="target_lang" type="text" value="zh-cn" placeholder="zh-cn" />
+            </label>
+            <label class="field">
+              <span>源语言</span>
+              <select id="src_lang"></select>
+            </label>
+          </div>
+          <div class="chip-row">
+            <label class="toggle-chip"><input id="skip_trans" type="checkbox" /> 仅转写</label>
+            <label class="toggle-chip"><input id="noise_suppress" type="checkbox" /> 降噪</label>
+            <label class="toggle-chip"><input id="bilingual_sub" type="checkbox" /> 双语</label>
+            <label class="toggle-chip"><input id="output_timestamp" type="checkbox" checked /> 时间戳</label>
+            <label class="toggle-chip"><input id="use_itn" type="checkbox" checked /> ITN</label>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-title">ASR</div>
+          <input id="asr_model" type="text" />
+          <select id="device"></select>
+          <select id="compute_type"></select>
+          <input id="proxy" type="text" placeholder="http://127.0.0.1:7890" />
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-title">官方 / 中转 API</div>
+          <input id="relay_base_url" type="text" placeholder="https://api.example.com/v1" />
+          <input id="relay_model_name" type="text" placeholder="gpt-4.1-mini" />
+          <input id="relay_api_key" type="password" placeholder="可选" />
+          <input id="openai_api_key" type="password" placeholder="OpenAI Key" />
+          <input id="anthropic_api_key" type="password" placeholder="Anthropic Key" />
+          <input id="google_api_key" type="password" placeholder="Google Key" />
+          <input id="openrouter_api_key" type="password" placeholder="OpenRouter Key" />
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-title">本地 HY-MT</div>
+          <input id="local_mt_model_id" type="text" />
+          <input id="local_mt_host" type="text" />
+          <input id="local_mt_tokenizer_dir" type="text" />
+          <input id="local_mt_gguf_path" type="text" />
+          <div class="mini-grid">
+            <input id="local_mt_max_new_tokens" type="number" />
+            <input id="local_mt_batch_size" type="number" />
+            <input id="local_mt_temperature" type="number" step="0.1" />
+            <input id="local_mt_top_p" type="number" step="0.1" />
+            <input id="local_mt_top_k" type="number" />
+            <input id="local_mt_repetition_penalty" type="number" step="0.01" />
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-title">运行参数</div>
+          <div class="mini-grid">
+            <input id="fee_limit" type="number" step="0.01" />
+            <input id="consumer_thread" type="number" />
+            <input id="batch_size_s" type="number" />
+            <input id="merge_length_s" type="number" />
+            <input id="max_single_segment_time" type="number" />
+            <input id="atten_lim_db" type="number" />
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <dialog id="confirmationDialog" class="confirmation-dialog">
+      <div class="dialog-head">
+        <div>
+          <div class="panel-title">翻译确认</div>
+          <div id="confirmationHint" class="panel-desc"></div>
+        </div>
+        <button id="closeConfirmationBtn" class="ghost-btn">关闭</button>
+      </div>
+      <div id="confirmationMeta" class="confirmation-meta"></div>
+      <div id="confirmationList" class="confirmation-list"></div>
+      <div class="dialog-actions">
+        <button id="confirmSelectionBtn" class="accent-btn">确认所选文件</button>
+      </div>
+    </dialog>
+
+    <div id="toastHost" class="toast-host"></div>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QTableView,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
 )
 
 from ..models import SRC_LANG_OPTIONS
@@ -30,10 +31,27 @@ class V2Workspace(QFrame):
         self.runtime_fields: dict[str, object] = {}
         self.summary_labels: list[tuple[QLabel, QLabel]] = []
         self.task_model = V2TaskTableModel(self)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("workspaceScroll")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.content_widget = QWidget()
+        self.content_widget.setObjectName("workspaceContent")
+        self.content_widget.setStyleSheet("background-color: transparent;")
+        self.scroll_area.setWidget(self.content_widget)
+        main_layout.addWidget(self.scroll_area)
+
         self._build_ui()
 
     def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self.content_widget)
         layout.setContentsMargins(38, 30, 38, 38)
         layout.setSpacing(22)
 
@@ -131,7 +149,8 @@ class V2Workspace(QFrame):
         self.task_table.verticalHeader().setVisible(False)
         self.task_table.horizontalHeader().setStretchLastSection(True)
         self.task_table.setShowGrid(False)
-        layout.addWidget(self.task_table, stretch=2)
+        self.task_table.setMinimumHeight(240)
+        layout.addWidget(self.task_table)
 
         step3 = QGroupBox("步骤 3 · 翻译确认")
         step3_layout = QVBoxLayout(step3)
@@ -166,7 +185,8 @@ class V2Workspace(QFrame):
         self.console = QPlainTextEdit()
         self.console.setObjectName("console")
         self.console.setReadOnly(True)
-        status_layout.addWidget(self.console, stretch=1)
+        self.console.setMinimumHeight(180)
+        status_layout.addWidget(self.console)
         action_row = QHBoxLayout()
         self.start_button = QPushButton("开始处理")
         action_row.addWidget(self.start_button)
@@ -174,7 +194,8 @@ class V2Workspace(QFrame):
         action_row.addWidget(self.rescan_button)
         action_row.addStretch(1)
         status_layout.addLayout(action_row)
-        layout.addWidget(status_group, stretch=2)
+        layout.addWidget(status_group)
+        layout.addStretch(1)
 
     def _wrap_labeled_widget(self, title: str, widget: QWidget) -> QWidget:
         wrapper = QWidget()

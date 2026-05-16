@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from dataclasses import dataclass, field
@@ -9,6 +10,18 @@ from typing import Any
 
 SUPPORTED_AUDIO_EXTENSIONS = (".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma")
 CACHE_DIR_NAME = ".openlrc_cache"
+PREPROCESSED_DIR_NAME = "preprocessed"
+GENERATED_AUDIO_STEM_SUFFIXES = ("_preprocessed", "_ns", "_ln")
+VIDEO_SOURCE_EXTENSIONS = (".mp4", ".mkv", ".mov", ".avi", ".webm", ".ts", ".m4v", ".flv", ".wmv")
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+WINDOWS_INVALID_CACHE_CHARS = '<>:"/\\|?*'
 
 ASR_RAW_FILENAME = "asr_raw.json"
 ASR_OPTIMIZED_FILENAME = "asr_optimized.json"
@@ -75,6 +88,31 @@ def is_inside_cache(root_dir: Path, path: Path) -> bool:
         return False
 
 
+def is_inside_preprocessed_dir(root_dir: Path, path: Path) -> bool:
+    try:
+        relative_path = path.relative_to(root_dir)
+    except ValueError:
+        return False
+    return PREPROCESSED_DIR_NAME in relative_path.parts
+
+
+def is_generated_audio_artifact(root_dir: Path, path: Path) -> bool:
+    audio_path = path.expanduser().resolve()
+
+    if is_inside_preprocessed_dir(root_dir, audio_path):
+        return True
+
+    if audio_path.stem.endswith(GENERATED_AUDIO_STEM_SUFFIXES):
+        return True
+
+    if audio_path.suffix.lower() == ".wav":
+        source_stem = audio_path.with_suffix("")
+        if any(source_stem.with_suffix(ext).exists() for ext in VIDEO_SOURCE_EXTENSIONS):
+            return True
+
+    return False
+
+
 def audio_relative_path(root_dir: Path, audio_path: Path) -> Path:
     return audio_path.resolve().relative_to(root_dir.resolve())
 
@@ -83,7 +121,39 @@ def cache_dir_for_audio(root_dir: str | Path, audio_path: str | Path) -> Path:
     root = normalize_root(root_dir)
     audio = Path(audio_path).expanduser().resolve()
     relative = audio_relative_path(root, audio)
-    return root / CACHE_DIR_NAME / relative.with_suffix("")
+    return root / CACHE_DIR_NAME / safe_cache_relative_path(relative.with_suffix(""))
+
+
+def is_unsafe_cache_part(part: str) -> bool:
+    if not part:
+        return True
+    if part != part.rstrip(" ."):
+        return True
+    if any(char in part for char in WINDOWS_INVALID_CACHE_CHARS):
+        return True
+    return part.upper() in WINDOWS_RESERVED_NAMES
+
+
+def sanitize_cache_part(part: str) -> str:
+    cleaned = "".join("_" if char in WINDOWS_INVALID_CACHE_CHARS else char for char in part).rstrip(" .")
+    if not cleaned:
+        cleaned = "_"
+    if cleaned.upper() in WINDOWS_RESERVED_NAMES:
+        cleaned = f"_{cleaned}"
+    return cleaned
+
+
+def safe_cache_relative_path(relative_without_suffix: Path) -> Path:
+    parts = relative_without_suffix.parts
+    if not parts:
+        return relative_without_suffix
+    if not any(is_unsafe_cache_part(part) for part in parts):
+        return relative_without_suffix
+
+    digest = hashlib.sha1(str(relative_without_suffix).encode("utf-8")).hexdigest()[:10]
+    safe_parts = [sanitize_cache_part(part) for part in parts]
+    safe_parts[-1] = f"{safe_parts[-1]}__{digest}"
+    return Path(*safe_parts)
 
 
 def lrc_path_for_audio(audio_path: str | Path) -> Path:
@@ -218,7 +288,9 @@ def scan_directory(root_dir: str | Path) -> list[DirectoryTask]:
     audio_paths = sorted(
         path.resolve()
         for path in root.rglob("*")
-        if is_supported_audio(path) and not is_inside_cache(root, path.resolve())
+        if is_supported_audio(path)
+        and not is_inside_cache(root, path.resolve())
+        and not is_generated_audio_artifact(root, path.resolve())
     )
     return [make_task(root, path) for path in audio_paths]
 

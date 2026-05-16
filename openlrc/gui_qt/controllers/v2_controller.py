@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Slot
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from ..config_store import load_config, save_config
@@ -14,11 +14,13 @@ from ..widgets.confirmation_dialog import ConfirmationDialog
 from ..workers.process_worker import ProcessWorker
 
 
-class V2Controller:
-    def __init__(self, window) -> None:
+class V2Controller(QObject):
+    def __init__(self, window, config_path: Path | None = None) -> None:
+        super().__init__(window)
         self.window = window
+        self.config_path = config_path
         self.default_device = detect_default_device()
-        self.config = load_config()
+        self.config = load_config(config_path) if config_path else load_config()
         if self.config.device not in ["cuda", "cpu"]:
             self.config.device = self.default_device
         self.scan_result = ScanResult()
@@ -85,7 +87,10 @@ class V2Controller:
         if self._loading_config:
             return
         self.collect_config()
-        save_config(self.config)
+        if self.config_path:
+            save_config(self.config, self.config_path)
+        else:
+            save_config(self.config)
         self._apply_endpoint_mode()
         self.workspace.render_summary(build_summary_items(self.config, self.scan_result))
         self.workspace.replan_label.setText(build_replan_text(self.config))
@@ -165,34 +170,39 @@ class V2Controller:
         )
         self.worker.moveToThread(self.worker_thread)
         self.worker_thread.started.connect(self.worker.run)
-        self.worker.progress_changed.connect(self._on_progress_changed)
-        self.worker.stage_changed.connect(self._on_stage_changed)
-        self.worker.current_file_changed.connect(self._on_current_file_changed)
-        self.worker.estimate_changed.connect(self._on_estimate_changed)
-        self.worker.log_line.connect(self.workspace.append_log)
-        self.worker.confirmation_ready.connect(self._on_confirmation_ready)
-        self.worker.completed.connect(self._on_worker_completed)
-        self.worker.failed.connect(self._on_worker_failed)
-        self.worker.done.connect(self.worker_thread.quit)
+        self.worker.progress_changed.connect(self._on_progress_changed, Qt.QueuedConnection)
+        self.worker.stage_changed.connect(self._on_stage_changed, Qt.QueuedConnection)
+        self.worker.current_file_changed.connect(self._on_current_file_changed, Qt.QueuedConnection)
+        self.worker.estimate_changed.connect(self._on_estimate_changed, Qt.QueuedConnection)
+        self.worker.log_line.connect(self.workspace.append_log, Qt.QueuedConnection)
+        self.worker.confirmation_ready.connect(self._on_confirmation_ready, Qt.QueuedConnection)
+        self.worker.completed.connect(self._on_worker_completed, Qt.QueuedConnection)
+        self.worker.failed.connect(self._on_worker_failed, Qt.QueuedConnection)
+        self.worker.done.connect(self.worker_thread.quit, Qt.QueuedConnection)
         self.worker.done.connect(self.worker.deleteLater)
         self.worker_thread.finished.connect(self.worker_thread.deleteLater)
-        self.worker_thread.finished.connect(self._on_worker_thread_finished)
+        self.worker_thread.finished.connect(self._on_worker_thread_finished, Qt.QueuedConnection)
         self._set_running_state(True)
         self.worker_thread.start()
 
+    @Slot(int, str)
     def _on_progress_changed(self, value: int, text: str) -> None:
         self.workspace.progress_bar.setValue(value)
         self.workspace.status_label.setText(text)
 
+    @Slot(str)
     def _on_stage_changed(self, text: str) -> None:
         self.workspace.stage_label.setText(text)
 
+    @Slot(str)
     def _on_current_file_changed(self, text: str) -> None:
         self.workspace.current_file_label.setText(text)
 
+    @Slot(str)
     def _on_estimate_changed(self, text: str) -> None:
         self.workspace.estimate_label.setText(text)
 
+    @Slot(object)
     def _on_confirmation_ready(self, payload: object) -> None:
         data = payload if isinstance(payload, dict) else {}
         self.pending_confirmation_state = data.get("state")
@@ -208,6 +218,7 @@ class V2Controller:
         )
         self.workspace.open_confirmation_button.setEnabled(False)
         self.workspace.status_label.setText("ASR 和费用估算已完成，等待翻译确认。")
+        self._maybe_open_pending_confirmation()
 
     def open_confirmation_dialog(self, auto_open: bool = False) -> None:
         if not self.pending_confirmation_state:
@@ -230,6 +241,7 @@ class V2Controller:
             selected_relative_paths=selected_relative_paths,
         )
 
+    @Slot(object)
     def _on_worker_completed(self, payload: object) -> None:
         data = payload if isinstance(payload, dict) else {}
         generated_files = data.get("generated_files", [])
@@ -252,15 +264,22 @@ class V2Controller:
         self.refresh_scan()
         QMessageBox.information(self.window, "处理完成", f"处理完成，共生成 {len(generated_files)} 个文件。")
 
+    @Slot(str, str)
     def _on_worker_failed(self, message: str, tb: str) -> None:
         self.workspace.status_label.setText(f"处理失败：{message}")
         self.workspace.append_log(f"处理失败：{message}")
         self.workspace.append_log(tb)
         QMessageBox.critical(self.window, "处理失败", message)
 
+    @Slot()
     def _on_worker_thread_finished(self) -> None:
         self.worker = None
         self.worker_thread = None
         self._set_running_state(False)
+        self._maybe_open_pending_confirmation()
+
+    def _maybe_open_pending_confirmation(self) -> None:
         if self.pending_confirmation_state and self.auto_open_confirmation_requested:
-            self.open_confirmation_dialog(auto_open=True)
+            if self.worker_thread is not None:
+                return
+            QTimer.singleShot(0, lambda: self.open_confirmation_dialog(auto_open=True))

@@ -8,6 +8,9 @@
 json_artifacts/
 output/
 streamlit*.log
+web*.log
+webshot*.png
+.openlrc_web/
 translate_intermediate.json
 tests/data/preprocessed/
 tests/data/test_audio.lrc

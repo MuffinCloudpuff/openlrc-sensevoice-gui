@@ -6,6 +6,16 @@ from pathlib import Path
 from .models import AppConfig, GUI_CONFIG_PATH
 
 
+def _sanitize_loaded_config(config: AppConfig) -> AppConfig:
+    if config.scan_root_dir:
+        scan_root = Path(config.scan_root_dir).expanduser()
+        if not scan_root.is_dir():
+            config.scan_root_dir = ""
+    if not config.target_lang.strip():
+        config.target_lang = "zh-cn"
+    return config
+
+
 def load_config(config_path: Path = GUI_CONFIG_PATH) -> AppConfig:
     if not config_path.exists():
         return AppConfig()
@@ -15,7 +25,7 @@ def load_config(config_path: Path = GUI_CONFIG_PATH) -> AppConfig:
     except Exception:
         return AppConfig()
 
-    return AppConfig.from_dict(payload)
+    return _sanitize_loaded_config(AppConfig.from_dict(payload))
 
 
 def save_config(config: AppConfig, config_path: Path = GUI_CONFIG_PATH) -> None:
