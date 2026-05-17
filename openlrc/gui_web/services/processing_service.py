@@ -9,6 +9,7 @@ from ...directory_workflow import (
     STATUS_TRANSLATION_PENDING,
     materialize_asr_cache,
     scan_directory,
+    store_asr_cache,
     store_translated_cache,
     store_translation_estimate_cache,
 )
@@ -21,12 +22,12 @@ from ...gui_qt.services.runtime import (
     estimate_translation_fee,
     is_local_translation_backend,
     normalize_src_lang,
-    run_asr_for_task,
     selected_fee_summary,
 )
 from ...gui_qt.translation.providers.local_hymt_runtime import ensure_ollama_model_ready, translate_lines_with_hymt
 from ...logger import logger
 from ...subtitle import Subtitle
+from ...utils import get_preprocessed_path
 from ..core.job_manager import JobCancelled
 
 
@@ -48,15 +49,112 @@ def _raise_if_cancelled(is_cancelled: Callable[[], bool]) -> None:
         raise JobCancelled()
 
 
+def _preprocess_tasks_for_asr(
+    lrcer,
+    tasks,
+    noise_suppress: bool,
+    emit: Callable[[str, dict], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    if not tasks:
+        return
+
+    total = len(tasks)
+    pending_tasks = []
+    completed = 0
+    for task in tasks:
+        cache_ready = task.cache_valid and task.asr_raw_path.exists() and task.asr_optimized_path.exists()
+        if cache_ready or get_preprocessed_path(task.audio_path).exists():
+            completed += 1
+            continue
+        pending_tasks.append(task)
+
+    emit("stage", {"message": "预处理音频"})
+    emit(
+        "progress",
+        {
+            "progress": int(8 + 20 * completed / max(total, 1)),
+            "message": f"预处理 {completed}/{total}",
+        },
+    )
+    if completed:
+        emit("current_file", {"message": f"已复用预处理缓存 {completed}/{total}"})
+
+    if not pending_tasks:
+        return
+
+    task_by_audio = {task.audio_path.resolve(): task for task in pending_tasks}
+
+    def on_preprocess_progress(done: int, _batch_total: int, audio_path: Path) -> None:
+        _raise_if_cancelled(is_cancelled)
+        current_done = completed + done
+        task = task_by_audio.get(Path(audio_path).resolve())
+        current_file = str(task.relative_path) if task else str(audio_path)
+        emit("current_file", {"message": f"正在预处理 {current_done}/{total}：{current_file}"})
+        emit(
+            "progress",
+            {
+                "progress": int(8 + 20 * current_done / max(total, 1)),
+                "message": f"预处理 {current_done}/{total}",
+                "current_file": current_file,
+            },
+        )
+
+    lrcer.pre_process(
+        [task.audio_path for task in pending_tasks],
+        noise_suppress=noise_suppress,
+        progress_callback=on_preprocess_progress,
+    )
+
+
+def _run_asr_for_preprocessed_task(
+    lrcer,
+    task,
+    src_lang: str | None,
+    target_lang: str | None,
+    cache_status: str,
+    preprocessed_path: Path,
+) -> tuple[Path, Path]:
+    if not preprocessed_path.exists():
+        raise FileNotFoundError(f"Preprocessed audio not found: {preprocessed_path}")
+
+    transcribed_path = lrcer._transcribe_single(preprocessed_path, src_lang)
+    transcribed_sub = Subtitle.from_json(transcribed_path)
+    transcribed_opt_sub = lrcer.post_process(transcribed_sub, update_name=True)
+    optimized_path = transcribed_opt_sub.filename
+    store_asr_cache(task, transcribed_path, optimized_path, target_lang=target_lang, status=cache_status)
+    return transcribed_path, optimized_path
+
+
+def _build_local_hymt_subtitle(
+    config: AppConfig,
+    task,
+    optimized_path: Path,
+    target_lang: str,
+) -> Subtitle:
+    transcribed_opt_sub = Subtitle.from_json(optimized_path)
+    translated_texts = translate_lines_with_hymt(
+        transcribed_opt_sub.texts,
+        transcribed_opt_sub.lang,
+        target_lang,
+        config,
+    )
+    final_subtitle = Subtitle.from_json(optimized_path)
+    final_subtitle.set_texts(translated_texts, lang=target_lang)
+    final_json_path = optimized_path.with_name(f"{task.audio_path.stem}.json")
+    final_subtitle.save(final_json_path, update_name=True)
+    return final_subtitle
+
+
 def _load_or_rebuild_asr_artifacts(
     lrcer,
     task,
     src_lang: str | None,
-    noise_suppress: bool,
     target_lang: str | None,
     cache_status: str,
     emit: Callable[[str, dict], None],
     is_cancelled: Callable[[], bool],
+    preprocessed_path: Path | None = None,
 ) -> tuple[Path, Path]:
     _raise_if_cancelled(is_cancelled)
     cache_ready = task.cache_valid and task.asr_raw_path.exists() and task.asr_optimized_path.exists()
@@ -70,13 +168,13 @@ def _load_or_rebuild_asr_artifacts(
                     "message": f"缓存不完整，回退为重转写：{task.relative_path} ({exc})",
                 },
             )
-    return run_asr_for_task(
+    return _run_asr_for_preprocessed_task(
         lrcer,
         task,
         src_lang,
-        noise_suppress,
         target_lang,
         cache_status,
+        preprocessed_path or get_preprocessed_path(task.audio_path),
     )
 
 
@@ -94,6 +192,7 @@ def run_prepare_job(
     ensure_file_logger(log_path)
     apply_runtime_api_keys(config)
     lrcer, translation_model = build_lrcer(config)
+    lrcer.preprocess_options["preprocess_workers"] = config.preprocess_workers
     src_lang = normalize_src_lang(config.src_lang)
     handler = ForwardingLogHandler(emit)
     logger.addHandler(handler)
@@ -109,6 +208,8 @@ def run_prepare_job(
 
         asr_outputs: list[tuple] = []
         cache_status = STATUS_ASR_DONE if config.skip_trans else STATUS_TRANSLATION_PENDING
+        _preprocess_tasks_for_asr(lrcer, scan_result, config.noise_suppress, emit, is_cancelled)
+        _raise_if_cancelled(is_cancelled)
         emit("stage", {"message": "ASR 缓存与转写"})
         for index, task in enumerate(scan_result, start=1):
             _raise_if_cancelled(is_cancelled)
@@ -126,17 +227,17 @@ def run_prepare_job(
                 lrcer,
                 task,
                 src_lang,
-                config.noise_suppress,
                 config.target_lang if not config.skip_trans else None,
                 cache_status,
                 emit,
                 is_cancelled,
+                get_preprocessed_path(task.audio_path),
             )
             asr_outputs.append((task, transcribed_path, optimized_path))
             emit(
                 "progress",
                 {
-                    "progress": int(18 + 48 * index / max(len(scan_result), 1)),
+                    "progress": int(30 + 36 * index / max(len(scan_result), 1)),
                     "message": f"ASR {index}/{len(scan_result)}",
                     "current_file": str(task.relative_path),
                 },
@@ -166,6 +267,44 @@ def run_prepare_job(
                 "log_path": str(log_path),
             }
 
+        if is_local_translation_backend(config):
+            emit("stage", {"message": "本地 HY-MT 翻译与导出"})
+            generated_files: list[str] = []
+            for index, (task, transcribed_path, optimized_path) in enumerate(asr_outputs, start=1):
+                _raise_if_cancelled(is_cancelled)
+                base_name = task.audio_path.stem
+                emit("current_file", {"message": f"正在本地翻译 {index}/{len(asr_outputs)}：{task.relative_path}"})
+                final_subtitle = _build_local_hymt_subtitle(config, task, optimized_path, config.target_lang)
+                emit(
+                    "progress",
+                    {
+                        "progress": int(72 + 18 * index / max(len(asr_outputs), 1)),
+                        "message": f"翻译 {index}/{len(asr_outputs)}",
+                        "current_file": str(task.relative_path),
+                    },
+                )
+
+                lrcer._generate_subtitle_files(final_subtitle, base_name, "lrc")
+                if config.bilingual_sub:
+                    transcribed_opt_sub = Subtitle.from_json(optimized_path)
+                    lrcer._handle_bilingual_subtitles(transcribed_path, base_name, transcribed_opt_sub, "lrc")
+                store_translated_cache(task, final_subtitle.filename, target_lang=config.target_lang)
+                generated_files.extend(str(path) for path in lrcer.transcribed_paths[-1:])
+                emit(
+                    "progress",
+                    {
+                        "progress": int(90 + 8 * index / max(len(asr_outputs), 1)),
+                        "message": f"导出 {index}/{len(asr_outputs)}",
+                        "current_file": str(task.relative_path),
+                    },
+                )
+
+            return {
+                "status": "completed",
+                "generated_files": generated_files,
+                "log_path": str(log_path),
+            }
+
         emit("stage", {"message": "费用估算与确认"})
         confirmation_entries = []
         for index, (task, _transcribed_path, optimized_path) in enumerate(asr_outputs, start=1):
@@ -173,26 +312,14 @@ def run_prepare_job(
             base_name = task.audio_path.stem
             transcribed_opt_sub = Subtitle.from_json(optimized_path)
             emit("current_file", {"message": f"估算费用 {index}/{len(asr_outputs)}：{task.relative_path}"})
-            if is_local_translation_backend(config):
-                cost_estimate = {
-                    "chunk_count": 1,
-                    "line_count": len(transcribed_opt_sub.texts),
-                    "context_fee": 0.0,
-                    "chunk_floor_fee": 0.0,
-                    "chunk_likely_fee": 0.0,
-                    "total_floor_fee": 0.0,
-                    "total_likely_fee": 0.0,
-                    "estimated_guideline_tokens": 0,
-                }
-            else:
-                cost_estimate = estimate_translation_fee(
-                    transcribed_opt_sub.texts,
-                    src_lang=transcribed_opt_sub.lang,
-                    target_lang=config.target_lang,
-                    chatbot_model=translation_model,
-                    title=base_name,
-                    glossary=lrcer.glossary,
-                )
+            cost_estimate = estimate_translation_fee(
+                transcribed_opt_sub.texts,
+                src_lang=transcribed_opt_sub.lang,
+                target_lang=config.target_lang,
+                chatbot_model=translation_model,
+                title=base_name,
+                glossary=lrcer.glossary,
+            )
             store_translation_estimate_cache(task, cost_estimate)
             confirmation_entries.append(
                 {
@@ -283,27 +410,23 @@ def run_translation_job(
                 lrcer,
                 task,
                 normalize_src_lang(config.src_lang),
-                config.noise_suppress,
                 confirmation_state["target_lang"],
                 STATUS_TRANSLATION_PENDING,
                 emit,
                 is_cancelled,
+                get_preprocessed_path(task.audio_path),
             )
             transcribed_opt_sub = Subtitle.from_json(optimized_path)
             base_name = task.audio_path.stem
             emit("current_file", {"message": f"正在翻译 {index}/{len(selected_tasks)}：{task.relative_path}"})
 
             if is_local_translation_backend(config):
-                translated_texts = translate_lines_with_hymt(
-                    transcribed_opt_sub.texts,
-                    transcribed_opt_sub.lang,
-                    confirmation_state["target_lang"],
+                final_subtitle = _build_local_hymt_subtitle(
                     config,
+                    task,
+                    optimized_path,
+                    confirmation_state["target_lang"],
                 )
-                final_subtitle = Subtitle.from_json(optimized_path)
-                final_subtitle.set_texts(translated_texts, lang=confirmation_state["target_lang"])
-                final_json_path = optimized_path.with_name(f"{base_name}.json")
-                final_subtitle.save(final_json_path, update_name=True)
             else:
                 final_subtitle = lrcer._build_final_subtitle(
                     base_name,

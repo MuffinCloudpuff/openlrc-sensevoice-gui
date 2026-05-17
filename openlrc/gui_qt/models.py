@@ -126,6 +126,7 @@ class AppConfig:
     output_timestamp: bool = True
     max_single_segment_time: int = 30000
     atten_lim_db: int = 15
+    preprocess_workers: int = 0
     src_lang: str = "自动检测"
     target_lang: str = "zh-cn"
     skip_trans: bool = False
@@ -158,6 +159,10 @@ class AppConfig:
             config.local_mt_tokenizer_dir, detect_local_hymt_tokenizer_dir
         )
         config.local_mt_gguf_path = _existing_file_or_detect(config.local_mt_gguf_path, detect_local_hymt_gguf_path)
+        try:
+            config.preprocess_workers = max(0, min(8, int(config.preprocess_workers or 0)))
+        except (TypeError, ValueError):
+            config.preprocess_workers = 0
         return config
 
     def to_dict(self) -> dict:
@@ -199,6 +204,7 @@ class AppConfig:
             "output_timestamp": self.output_timestamp,
             "max_single_segment_time": self.max_single_segment_time,
             "atten_lim_db": self.atten_lim_db,
+            "preprocess_workers": self.preprocess_workers,
             "src_lang": self.src_lang,
             "target_lang": self.target_lang,
             "skip_trans": self.skip_trans,

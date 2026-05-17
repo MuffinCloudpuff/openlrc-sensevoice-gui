@@ -37,7 +37,7 @@ default_vad_options = {
     "max_single_segment_time": 30000,  # Max segment duration in ms (30 seconds)
 }
 
-default_preprocess_options = {"atten_lim_db": 15}
+default_preprocess_options = {"atten_lim_db": 15, "preprocess_workers": 0}
 
 # Currently bottleneck-ed by Spacy
 supported_languages = {

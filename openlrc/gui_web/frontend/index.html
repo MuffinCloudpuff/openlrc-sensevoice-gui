@@ -279,6 +279,7 @@
             <input id="merge_length_s" type="number" />
             <input id="max_single_segment_time" type="number" />
             <input id="atten_lim_db" type="number" />
+            <input id="preprocess_workers" type="number" min="0" max="8" placeholder="预处理并发 0=自动" />
           </div>
         </div>
       </aside>
@@ -301,6 +302,6 @@
 
     <div id="toastHost" class="toast-host"></div>
 
-    <script src="/assets/app.js?v=20260516-log-layout"></script>
+    <script src="/assets/app.js?v=20260516-preprocess-batch"></script>
   </body>
 </html>

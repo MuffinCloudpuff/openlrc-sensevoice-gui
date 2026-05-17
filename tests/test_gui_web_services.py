@@ -4,17 +4,19 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
 from openlrc.gui_qt.models import AppConfig, ScanResult
+from openlrc.directory_workflow import DirectoryTask
 from openlrc.gui_common import native_dialogs
 from openlrc.gui_web.app import app
 from openlrc.gui_web.core.directory_watch import DirectoryWatchService, _directory_signature, _is_relevant_watch_path
 from openlrc.gui_web.core.event_broker import EventBroker
 from openlrc.gui_web.core.job_manager import JobManager
 from openlrc.gui_web.services.file_service import list_output_files
+from openlrc.gui_web.services.processing_service import _preprocess_tasks_for_asr, run_prepare_job
 from openlrc.gui_web.services.provider_service import list_provider_payloads
 from openlrc.gui_web.services.scan_service import build_scan_payload, scan_directory_for_web
 
@@ -193,6 +195,113 @@ class TestGuiWebServices(unittest.TestCase):
         response = TestClient(app).get("/api/bootstrap")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_web_preprocess_batches_only_missing_preprocessed_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cached_audio = root / "cached.mp3"
+            pending_audio = root / "pending.mp3"
+            cached_audio.write_bytes(b"audio")
+            pending_audio.write_bytes(b"audio")
+            preprocessed = root / "preprocessed" / "cached_preprocessed.wav"
+            preprocessed.parent.mkdir()
+            preprocessed.write_bytes(b"cached")
+
+            cached_task = DirectoryTask(
+                root_dir=root,
+                audio_path=cached_audio,
+                relative_path=Path("cached.mp3"),
+                cache_dir=root / ".openlrc_cache" / "cached",
+                lrc_path=root / "cached.lrc",
+            )
+            pending_task = DirectoryTask(
+                root_dir=root,
+                audio_path=pending_audio,
+                relative_path=Path("pending.mp3"),
+                cache_dir=root / ".openlrc_cache" / "pending",
+                lrc_path=root / "pending.lrc",
+            )
+            lrcer = Mock()
+
+            def run_preprocess(paths, noise_suppress, progress_callback):
+                progress_callback(1, 1, paths[0])
+
+            lrcer.pre_process.side_effect = run_preprocess
+            events = []
+
+            _preprocess_tasks_for_asr(
+                lrcer,
+                [cached_task, pending_task],
+                noise_suppress=False,
+                emit=lambda event_type, payload: events.append((event_type, payload)),
+                is_cancelled=lambda: False,
+            )
+
+        lrcer.pre_process.assert_called_once()
+        self.assertEqual(lrcer.pre_process.call_args.args[0], [pending_audio])
+        progress_messages = [payload["message"] for event_type, payload in events if event_type == "progress"]
+        self.assertIn("预处理 1/2", progress_messages)
+        self.assertIn("预处理 2/2", progress_messages)
+
+    def test_local_hymt_prepare_job_translates_without_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "song.mp3"
+            audio.write_bytes(b"audio")
+            preprocessed = root / "preprocessed" / "song_preprocessed.wav"
+            preprocessed.parent.mkdir()
+            preprocessed.write_bytes(b"preprocessed")
+            transcribed_path = root / "preprocessed" / "song_preprocessed_transcribed.json"
+            optimized_path = root / "preprocessed" / "song_preprocessed_transcribed_optimized.json"
+            final_path = root / "song.json"
+            task = DirectoryTask(
+                root_dir=root,
+                audio_path=audio,
+                relative_path=Path("song.mp3"),
+                cache_dir=root / ".openlrc_cache" / "song",
+                lrc_path=root / "song.lrc",
+            )
+            lrcer = Mock()
+            lrcer.preprocess_options = {}
+            lrcer.transcribed_paths = []
+
+            def generate_subtitle_files(_subtitle, _base_name, _fmt):
+                lrcer.transcribed_paths.append(root / "song.lrc")
+
+            lrcer._generate_subtitle_files.side_effect = generate_subtitle_files
+            final_subtitle = Mock()
+            final_subtitle.filename = final_path
+            events = []
+
+            with (
+                patch("openlrc.gui_web.services.processing_service.scan_directory", return_value=[task]),
+                patch("openlrc.gui_web.services.processing_service.ensure_file_logger"),
+                patch("openlrc.gui_web.services.processing_service.apply_runtime_api_keys"),
+                patch("openlrc.gui_web.services.processing_service.build_lrcer", return_value=(lrcer, "local-model")),
+                patch("openlrc.gui_web.services.processing_service.ensure_ollama_model_ready"),
+                patch(
+                    "openlrc.gui_web.services.processing_service._load_or_rebuild_asr_artifacts",
+                    return_value=(transcribed_path, optimized_path),
+                ),
+                patch(
+                    "openlrc.gui_web.services.processing_service._build_local_hymt_subtitle",
+                    return_value=final_subtitle,
+                ) as build_local,
+                patch("openlrc.gui_web.services.processing_service.store_translated_cache") as store_cache,
+            ):
+                result = run_prepare_job(
+                    AppConfig(scan_root_dir=str(root), translation_backend="本地 HY-MT"),
+                    emit=lambda event_type, payload: events.append((event_type, payload)),
+                    is_cancelled=lambda: False,
+                )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertNotIn("confirmation_state", result)
+        build_local.assert_called_once()
+        store_cache.assert_called_once()
+        stage_messages = [payload["message"] for event_type, payload in events if event_type == "stage"]
+        self.assertIn("本地 HY-MT 翻译与导出", stage_messages)
+        self.assertNotIn("费用估算与确认", stage_messages)
 
 
 if __name__ == "__main__":

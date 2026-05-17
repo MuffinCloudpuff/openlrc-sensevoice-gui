@@ -80,6 +80,7 @@ const LIST_FIELD_IDS = [
   "merge_length_s",
   "max_single_segment_time",
   "atten_lim_db",
+  "preprocess_workers",
   "src_lang",
   "target_lang",
   "skip_trans",
@@ -103,6 +104,7 @@ const NUMBER_FIELDS = new Set([
   "merge_length_s",
   "max_single_segment_time",
   "atten_lim_db",
+  "preprocess_workers",
 ]);
 
 const BOOLEAN_FIELDS = new Set(CHECKBOX_FIELD_IDS);
@@ -1182,6 +1184,7 @@ async function confirmSelection() {
     method: "POST",
     body: JSON.stringify({ selected_relative_paths: selected }),
   });
+  hideConfirmation();
   renderJobs(state.jobs);
   if (data.job?.status) {
     openJobStream(data.job.id || state.activeJobId);

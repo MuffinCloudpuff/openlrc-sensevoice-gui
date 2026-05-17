@@ -57,13 +57,28 @@ class TestPreprocessor(unittest.TestCase):
         self.assertIsInstance(ns_paths, list)
         self.assertIsInstance(ns_paths[0], Path)
 
-    @patch("openlrc.preprocess.FFmpegNormalize")
-    def test_loudness_normalization_returns_path_objects(self, mock_norm):
-        mock_norm.return_value.run_normalization.return_value = None
+    @patch("openlrc.preprocess.as_completed")
+    @patch("openlrc.preprocess.ProcessPoolExecutor")
+    def test_loudness_normalization_returns_path_objects(self, mock_pool, mock_as_completed):
+        future = Mock()
+        future.result.return_value = None
+        mock_pool.return_value.__enter__.return_value.submit.return_value = future
+        mock_as_completed.return_value = [future]
         preprocessor = Preprocessor("data/test_audio.wav")
         ln_paths = preprocessor.loudness_normalization(preprocessor.audio_paths)
         self.assertIsInstance(ln_paths, list)
         self.assertIsInstance(ln_paths[0], Path)
+
+    @patch("openlrc.preprocess.os.cpu_count", return_value=12)
+    def test_auto_preprocess_workers_uses_conservative_half_cpu_cap(self, _mock_cpu_count):
+        preprocessor = Preprocessor("audio.wav", options={"preprocess_workers": 0})
+
+        self.assertEqual(preprocessor._resolve_preprocess_workers(), 4)
+
+    def test_manual_preprocess_workers_are_clamped_to_eight(self):
+        preprocessor = Preprocessor("audio.wav", options={"preprocess_workers": 99})
+
+        self.assertEqual(preprocessor._resolve_preprocess_workers(), 8)
 
     @patch("openlrc.preprocess.Path.rename")
     @patch("openlrc.preprocess.Preprocessor.noise_suppression")

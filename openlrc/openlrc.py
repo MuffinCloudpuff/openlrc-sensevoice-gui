@@ -13,7 +13,7 @@ from pathlib import Path
 from pprint import pformat
 from queue import Queue
 from threading import Lock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from openlrc.transcribe import ASRSegment as Segment
@@ -746,7 +746,12 @@ class LRCer:
 
         return result
 
-    def pre_process(self, paths, noise_suppress=False):
+    def pre_process(
+        self,
+        paths,
+        noise_suppress: bool = False,
+        progress_callback: Callable[[int, int, Path], None] | None = None,
+    ):
         """
         Preprocess input audio/video files.
 
@@ -772,7 +777,10 @@ class LRCer:
 
         from openlrc.preprocess import Preprocessor
 
-        return Preprocessor(paths, options=self.preprocess_options).run(noise_suppress)
+        return Preprocessor(paths, options=self.preprocess_options).run(
+            noise_suppress,
+            progress_callback=progress_callback,
+        )
 
     @staticmethod
     def post_process(
